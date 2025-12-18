@@ -11,7 +11,7 @@ func TestClient_UserState(t *testing.T) {
 	client := newClient(MainnetAPIURL, true)
 
 	// 调用 UserState 方法
-	result, err := client.UserState("0xfffff7d3762c2c6fe16ff0dbcdf0032b0549bb06")
+	result, err := client.UserState("0x0448e125d7c83a35a211722a12627311c3e6a657")
 	if err != nil {
 		t.Fatalf("UserState returned error: %v", err)
 	}

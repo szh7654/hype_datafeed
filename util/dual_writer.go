@@ -40,7 +40,7 @@ type Writer struct {
 }
 
 // New 创建一个新的 DualWriter
-func New(cfg Config) (*Writer, error) {
+func NewDualWriter(cfg Config) (*Writer, error) {
 	if cfg.Schema == nil {
 		return nil, fmt.Errorf("schema cannot be nil")
 	}

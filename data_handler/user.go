@@ -31,7 +31,7 @@ type User struct {
 	CrossAccountValue float64
 }
 
-func initUsers(users []string) {
+func InitUsers(users []string) {
 	for _, user := range users {
 		_ = GetUser(eth.HexToAddress(user))
 	}

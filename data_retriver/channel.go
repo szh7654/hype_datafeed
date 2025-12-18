@@ -1,17 +1,136 @@
 package dataretriver
 
-import eth "github.com/ethereum/go-ethereum/common"
+import (
+	"context"
+	"indexer/util"
+	"sync"
+	"time"
 
-var UserStateChan = make(chan UserStateWithId, 1000)
-var BlockFillChan = make(chan *BlockFill, 1000)
-var BlockOrderStatusChan = make(chan *BlockOrderStatus, 1000)
-var BlockOrderBookDiffChan = make(chan *BlockOrderBookDiff, 1000)
+	eth "github.com/ethereum/go-ethereum/common"
+	"github.com/rs/zerolog/log"
+)
 
-var UserStateReqChan = make(chan map[uint32]eth.Address, 1000)
+var (
+	BlockFillChan               = make(chan BlockFill, 1000)
+	BlockOrderStatusChan        = make(chan BlockOrderStatus, 1000)
+	BlockOrderBookDiffChan      = make(chan BlockOrderBookDiff, 1000)
+	UserAndPositionSnapshotChan = make(chan map[uint64]Position, 1000)
 
-var UserAndPositionSnapshotChan = make(chan map[uint64]Position, 1000)
+	UserStateWorkerChan = make(chan AddressWithUserId, 100000)
+
+	UserStateResponseChan = make(chan UserStateWithId, 1000)
+)
 
 type UserStateWithId struct {
 	UserId    uint32
 	UserState *UserState
+}
+
+type AddressWithUserId struct {
+	Address eth.Address
+	UserId  uint32
+}
+
+func Start(ctx context.Context, wg *sync.WaitGroup) {
+	fetchUserStateRoutine(ctx, wg)
+	readFillBlockRoutine(ctx, wg)
+	readOrderStatusBlockRoutine(ctx, wg)
+	readOrderBookDiffBlockRoutine(ctx, wg)
+}
+
+func fetchUserStateRoutine(ctx context.Context, wg *sync.WaitGroup) {
+	for range 5 {
+		go fetchUserStateWorker(ctx, wg)
+	}
+}
+
+func fetchUserStateWorker(ctx context.Context, wg *sync.WaitGroup) {
+	wg.Add(1)
+	defer wg.Done()
+
+	client := NewClient(LocalAPIURL, false)
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case addressWithUserId := <-UserStateWorkerChan:
+			userState, err := client.UserState(addressWithUserId.Address.String())
+			if err != nil {
+				log.Error().Err(err).Send()
+				time.Sleep(100 * time.Millisecond)
+				UserStateWorkerChan <- addressWithUserId // retry
+				continue
+			}
+			UserStateResponseChan <- UserStateWithId{
+				UserId:    addressWithUserId.UserId,
+				UserState: userState,
+			}
+		}
+	}
+}
+
+func readFillBlockRoutine(ctx context.Context, wg *sync.WaitGroup) {
+	wg.Add(1)
+	tailer := util.NewTailer("/root/hl/data/node_fills_by_block/hourly/", ctx, wg)
+	go func() {
+		defer wg.Done()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case line := <-tailer.Lines:
+				var blockFill BlockFill
+				err := blockFill.UnmarshalJSON([]byte(line))
+				if err != nil {
+					log.Error().Err(err).Send()
+					continue
+				}
+				BlockFillChan <- blockFill
+			}
+		}
+	}()
+}
+
+func readOrderStatusBlockRoutine(ctx context.Context, wg *sync.WaitGroup) {
+	wg.Add(1)
+	tailer := util.NewTailer("/root/hl/data/node_orders_status_by_block/hourly/", ctx, wg)
+	go func() {
+		defer wg.Done()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case line := <-tailer.Lines:
+				var blockOrderStatus BlockOrderStatus
+				err := blockOrderStatus.UnmarshalJSON([]byte(line))
+				if err != nil {
+					log.Error().Err(err).Send()
+					continue
+				}
+				BlockOrderStatusChan <- blockOrderStatus
+			}
+		}
+	}()
+}
+
+func readOrderBookDiffBlockRoutine(ctx context.Context, wg *sync.WaitGroup) {
+	wg.Add(1)
+	tailer := util.NewTailer("/root/hl/data/node_orders_book_diff_by_block/hourly/", ctx, wg)
+	go func() {
+		defer wg.Done()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case line := <-tailer.Lines:
+				var blockOrderBookDiff BlockOrderBookDiff
+				err := blockOrderBookDiff.UnmarshalJSON([]byte(line))
+				if err != nil {
+					log.Error().Err(err).Send()
+					continue
+				}
+				BlockOrderBookDiffChan <- blockOrderBookDiff
+			}
+		}
+	}()
 }

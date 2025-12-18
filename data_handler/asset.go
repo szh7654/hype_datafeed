@@ -9,9 +9,6 @@ var (
 	AssetNames    []string          = make([]string, 0)
 	Assets        []*Asset          = make([]*Asset, 0)
 	NameToAssetId map[string]uint16 = make(map[string]uint16)
-
-	
-
 )
 
 type Asset struct {
@@ -39,7 +36,7 @@ func GetAsset(name string) *Asset {
 	}
 }
 
-func initAssets(assetData dr.MetaAndAssetCtxs) {
+func InitAssets(assetData dr.MetaAndAssetCtxs) {
 	for i, assetInfo := range assetData.Meta.Universe {
 		assetCtx := assetData.Ctxs[i]
 		AddAsset(Asset{

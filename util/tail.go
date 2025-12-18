@@ -1,6 +1,7 @@
-package dataretriver
+package util
 
 import (
+	"context"
 	"path/filepath"
 	"strconv"
 	"sync"
@@ -13,37 +14,24 @@ import (
 // HourlyTailer 结构体
 type HourlyTailer struct {
 	baseDir string
-	Lines   chan string   // 用户读取的统一 Channel
-	closeCh chan struct{} // 全局关闭信号
-	wg      sync.WaitGroup
+	Lines   chan string
 }
 
-func New(baseDir string) *HourlyTailer {
-	return &HourlyTailer{
+func NewTailer(baseDir string, ctx context.Context, wg *sync.WaitGroup) *HourlyTailer {
+	h := &HourlyTailer{
 		baseDir: baseDir,
 		// 缓冲区稍微大一点，防止双倍流量写入时阻塞
-		Lines:   make(chan string, 2048),
-		closeCh: make(chan struct{}),
+		Lines: make(chan string, 2048),
 	}
-}
-
-// Start 启动入口
-func (h *HourlyTailer) Start() {
-	h.wg.Add(1)
-	go h.managerLoop()
-}
-
-// Close 关闭所有 tail 任务
-func (h *HourlyTailer) Close() {
-	close(h.closeCh)
-	h.wg.Wait()
-	close(h.Lines)
+	wg.Add(1)
+	go h.managerLoop(ctx, wg)
+	return h
 }
 
 // managerLoop 负责监控时间，调度具体的 tail 任务
 // 它只负责“什么时候开启新文件的 tail”，不负责读取数据
-func (h *HourlyTailer) managerLoop() {
-	defer h.wg.Done()
+func (h *HourlyTailer) managerLoop(ctx context.Context, wg *sync.WaitGroup) {
+	defer wg.Done()
 	// 定时检查新文件
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
@@ -51,14 +39,14 @@ func (h *HourlyTailer) managerLoop() {
 	hour := 0
 	for {
 		select {
-		case <-h.closeCh:
+		case <-ctx.Done():
 			return
 		case <-ticker.C:
 			t := time.Now()
 			currentYymmdd := t.Format("20060102")
 			currentHour := t.Hour()
 			if currentYymmdd != yymmdd || currentHour != hour {
-				h.startTailWorker(currentYymmdd, currentHour)
+				h.startTailWorker(currentYymmdd, currentHour, ctx, wg)
 				yymmdd = currentYymmdd
 				hour = currentHour
 			}
@@ -66,11 +54,10 @@ func (h *HourlyTailer) managerLoop() {
 	}
 }
 
-func (h *HourlyTailer) startTailWorker(yymmdd string, hour int) {
-	h.wg.Add(1)
+func (h *HourlyTailer) startTailWorker(yymmdd string, hour int, ctx context.Context, wg *sync.WaitGroup) {
+	wg.Add(1)
 	go func() {
-		defer h.wg.Done()
-
+		defer wg.Done()
 		filePath := filepath.Join(h.baseDir, yymmdd, strconv.Itoa(hour))
 
 		t, err := tail.TailFile(filePath, tail.Config{
@@ -92,7 +79,7 @@ func (h *HourlyTailer) startTailWorker(yymmdd string, hour int) {
 
 		for {
 			select {
-			case <-h.closeCh:
+			case <-ctx.Done():
 				return
 			case line, ok := <-t.Lines:
 				idleTime.Reset(time.Minute * 1)

@@ -1,15 +1,14 @@
 package dataretriver
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"indexer/util"
+
+	eth "github.com/ethereum/go-ethereum/common"
+	"github.com/mailru/easyjson/opt"
+)
 
 //go:generate easyjson -all
-
-type Side string
-
-const (
-	SideAsk Side = "A"
-	SideBid Side = "B"
-)
 
 type Grouping string
 
@@ -22,18 +21,6 @@ const (
 // Constants for default values
 const (
 	DefaultSlippage = 0.05 // 5%
-)
-
-type Tif string
-
-// Order Time-in-Force constants
-const (
-	// Add Liquidity Only
-	TifAlo Tif = "Alo"
-	// Immediate or Cancel
-	TifIoc Tif = "Ioc"
-	// Good Till Cancel
-	TifGtc Tif = "Gtc"
 )
 
 type Tpsl string // Advanced order type
@@ -136,11 +123,6 @@ type WsMsg struct {
 	Data    map[string]any `json:"data"`
 }
 
-type OrderType struct {
-	Limit   *LimitOrderType   `json:"limit,omitempty"`
-	Trigger *TriggerOrderType `json:"trigger,omitempty"`
-}
-
 type LimitOrderType struct {
 	Tif Tif `json:"tif"` // TifAlo, TifIoc, TifGtc
 }
@@ -180,44 +162,6 @@ type PerpDexSchemaInput struct {
 	OracleUpdater   *string `json:"oracleUpdater"`
 }
 
-type AssetPosition struct {
-	Position Position `json:"position"`
-	Type     string   `json:"type"`
-}
-
-type Position struct {
-	Coin           string      `json:"coin"`
-	EntryPx        *string     `json:"entryPx"`
-	Leverage       Leverage    `json:"leverage"`
-	LiquidationPx  *string     `json:"liquidationPx"`
-	MarginUsed     string      `json:"marginUsed"`
-	PositionValue  string      `json:"positionValue"`
-	ReturnOnEquity string      `json:"returnOnEquity"`
-	Szi            string      `json:"szi"`
-	UnrealizedPnl  string      `json:"unrealizedPnl"`
-	CumFunding     *CumFunding `json:"cumFunding,omitempty"`
-	MaxLeverage    int         `json:"maxLeverage"`
-}
-
-type Leverage struct {
-	Type   string  `json:"type"`
-	Value  int     `json:"value"`
-	RawUsd *string `json:"rawUsd,omitempty"`
-}
-
-type CumFunding struct {
-	AllTime     string `json:"allTime"`
-	SinceChange string `json:"sinceChange"`
-	SinceOpen   string `json:"sinceOpen"`
-}
-
-type UserState struct {
-	AssetPositions     []AssetPosition `json:"assetPositions"`
-	CrossMarginSummary MarginSummary   `json:"crossMarginSummary"`
-	MarginSummary      MarginSummary   `json:"marginSummary"`
-	Withdrawable       string          `json:"withdrawable"`
-}
-
 type SpotBalance struct {
 	Coin     string `json:"coin"`
 	Token    int    `json:"token"`
@@ -228,13 +172,6 @@ type SpotBalance struct {
 
 type SpotUserState struct {
 	Balances []SpotBalance `json:"balances"`
-}
-
-type MarginSummary struct {
-	AccountValue    string `json:"accountValue"`
-	TotalMarginUsed string `json:"totalMarginUsed"`
-	TotalNtlPos     string `json:"totalNtlPos"`
-	TotalRawUsd     string `json:"totalRawUsd"`
 }
 
 type OpenOrder struct {
@@ -367,24 +304,6 @@ const (
 type OrderQueryResult struct {
 	Status OrderQueryStatus   `json:"status"`
 	Order  OrderQueryResponse `json:"order,omitempty"`
-}
-
-type Fill struct {
-	ClosedPnl     string `json:"closedPnl"`
-	Coin          string `json:"coin"`
-	Crossed       bool   `json:"crossed"`
-	Dir           string `json:"dir"`
-	Hash          string `json:"hash"`
-	Oid           int64  `json:"oid"`
-	Price         string `json:"px"`
-	Side          string `json:"side"`
-	StartPosition string `json:"startPosition"`
-	Size          string `json:"sz"`
-	Time          int64  `json:"time"`
-	Fee           string `json:"fee"`
-	FeeToken      string `json:"feeToken"`
-	BuilderFee    string `json:"builderFee,omitempty"`
-	Tid           int64  `json:"tid"`
 }
 
 type FundingHistory struct {
@@ -639,4 +558,96 @@ type PerpDeployAuctionStatus struct {
 	StartGas         string  `json:"startGas"`
 	CurrentGas       string  `json:"currentGas"`
 	EndGas           *string `json:"endGas"`
+}
+
+type BlockFill struct {
+	LocalTime   util.NSTime `json:"local_time"`
+	BlockTime   util.NSTime `json:"block_time"`
+	BlockNumber uint32      `json:"block_number"`
+	Events      []FillEvent `json:"events"`
+}
+
+type BlockOrderStatus struct {
+	LocalTime   util.NSTime `json:"local_time"`
+	BlockTime   util.NSTime `json:"block_time"`
+	BlockNumber uint32      `json:"block_number"`
+	Events      []any       `json:"events"`
+}
+
+type BlockOrderBookDiff struct {
+	LocalTime   util.NSTime `json:"local_time"`
+	BlockTime   util.NSTime `json:"block_time"`
+	BlockNumber uint32      `json:"block_number"`
+	Events      []any       `json:"events"`
+}
+
+type FillEvent struct {
+	Address eth.Address `json:"address"`
+	Fill    Fill        `json:"event"`
+}
+
+type Fill struct {
+	Coin          string    `json:"coin"`
+	Px            float64   `json:"px,string"`
+	Sz            float64   `json:"sz,string"`
+	Side          Side      `json:"side"`
+	Time          int64     `json:"time"`
+	StartPosition float64   `json:"startPosition"`
+	Dir           string    `json:"dir"`
+	ClosedPnl     float64   `json:"closedPnl"`
+	Oid           uint64    `json:"oid"`
+	Crossed       bool      `json:"crossed"`
+	Fee           float64   `json:"fee"`
+	TwapId        opt.Int64 `json:"twapId"`
+}
+
+type AssetPosition struct {
+	Position     Position     `json:"position"`
+	PositionType PositionType `json:"type"`
+}
+
+type Position struct {
+	Coin           string     `json:"coin"`
+	EntryPx        OptFloat64 `json:"entryPx"`
+	Leverage       Leverage   `json:"leverage"`
+	LiquidationPx  OptFloat64 `json:"liquidationPx"`
+	MarginUsed     float64    `json:"marginUsed,string"`
+	PositionValue  float64    `json:"positionValue,string"`
+	ReturnOnEquity float64    `json:"returnOnEquity,string"`
+	Szi            float64    `json:"szi,string"`
+	UnrealizedPnl  float64    `json:"unrealizedPnl,string"`
+	//CumFunding     *CumFunding `json:"cumFunding,omitempty"`
+	MaxLeverage int `json:"maxLeverage"`
+}
+
+type Leverage struct {
+	Type  LeverageType `json:"type"`
+	Value int          `json:"value"`
+}
+
+type CumFunding struct {
+	AllTime     string `json:"allTime"`
+	SinceChange string `json:"sinceChange"`
+	SinceOpen   string `json:"sinceOpen"`
+}
+
+type UserState struct {
+	AssetPositions     []AssetPosition    `json:"assetPositions"`
+	CrossMarginSummary CrossMarginSummary `json:"crossMarginSummary"`
+	MarginSummary      MarginSummary      `json:"marginSummary"`
+	// Withdrawable       string          `json:"withdrawable"`
+}
+
+type MarginSummary struct {
+	AccountValue float64 `json:"accountValue,string"`
+	//TotalMarginUsed float64 `json:"totalMarginUsed,string"`
+	TotalNtlPos float64 `json:"totalNtlPos,string"`
+	// TotalRawUsd     string  `json:"totalRawUsd"`
+}
+
+type CrossMarginSummary struct {
+	AccountValue float64 `json:"accountValue,string"`
+	// TotalMarginUsed string  `json:"totalMarginUsed"`
+	// TotalNtlPos     string  `json:"totalNtlPos"`
+	// TotalRawUsd     string  `json:"totalRawUsd"`
 }

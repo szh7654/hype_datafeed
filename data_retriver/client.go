@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"time"
 
-	"github.com/bytedance/sonic"
 	"github.com/rs/zerolog/log"
 )
 
@@ -34,11 +34,20 @@ func newClient(baseURL string, debug bool) *Client {
 	if baseURL == "" {
 		baseURL = MainnetAPIURL
 	}
+	transport := &http.Transport{
+		MaxIdleConns:        10,
+		MaxIdleConnsPerHost: 10,
+		IdleConnTimeout:     365 * 24 * time.Hour,
+	}
+	client := &http.Client{
+		Transport: transport,
+		Timeout:   10 * time.Second, // 请求超时
+	}
 
 	cli := &Client{
 		debug:      debug,
 		baseURL:    baseURL,
-		httpClient: new(http.Client),
+		httpClient: client,
 	}
 	return cli
 }
@@ -100,7 +109,7 @@ func (c *Client) UserState(address string) (*UserState, error) {
 	}
 
 	var result UserState
-	if err := sonic.Unmarshal(resp, &result); err != nil {
+	if err := result.UnmarshalJSON(resp); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal user state: %w", err)
 	}
 	return &result, nil
