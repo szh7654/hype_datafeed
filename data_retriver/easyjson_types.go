@@ -4,10 +4,34 @@ import (
 	"strconv"
 	"strings"
 
+	eth "github.com/ethereum/go-ethereum/common"
 	jlexer "github.com/mailru/easyjson/jlexer"
 	jwriter "github.com/mailru/easyjson/jwriter"
 	"github.com/rs/zerolog/log"
 )
+
+type FillEvent struct {
+	Address eth.Address `json:"address"`
+	Fill    Fill        `json:"event"`
+}
+
+func (v *FillEvent) UnmarshalEasyJSON(in *jlexer.Lexer) {
+	// 如果是 null，直接跳过
+	if in.IsNull() {
+		in.Skip()
+		return
+	}
+	in.Delim('[')
+	if in.IsNull() {
+		in.Skip()
+	} else {
+		v.Address = eth.HexToAddress(in.UnsafeString())
+	}
+	in.WantComma()
+	v.Fill.UnmarshalEasyJSON(in)
+
+	in.Delim(']')
+}
 
 type OptFloat64 float64
 

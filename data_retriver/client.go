@@ -52,17 +52,12 @@ func newClient(baseURL string, debug bool) *Client {
 	return cli
 }
 
-func (c *Client) post(path string, payload any) ([]byte, error) {
-	jsonData, err := json.Marshal(payload)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal payload: %w", err)
-	}
-
+func (c *Client) post(path string, payload []byte) ([]byte, error) {
 	url := c.baseURL + path
 	req, err := http.NewRequest(
 		http.MethodPost,
 		url,
-		bytes.NewBuffer(jsonData),
+		bytes.NewBuffer(payload),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
@@ -98,11 +93,7 @@ func (c *Client) post(path string, payload any) ([]byte, error) {
 }
 
 func (c *Client) UserState(address string) (*UserState, error) {
-	payload := map[string]any{
-		"type": "clearinghouseState",
-		"user": address,
-	}
-
+	payload := []byte(fmt.Sprintf(`{"type": "clearinghouseState", "user": "%s"}`, address))
 	resp, err := c.post("/info", payload)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch user state: %w", err)
@@ -116,9 +107,8 @@ func (c *Client) UserState(address string) (*UserState, error) {
 }
 
 func (c *Client) MetaAndAssetCtxs() (*MetaAndAssetCtxs, error) {
-	resp, err := c.post("/info", map[string]any{
-		"type": "metaAndAssetCtxs",
-	})
+	payload := []byte(`{"type": "metaAndAssetCtxs"}`)
+	resp, err := c.post("/info", payload)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch meta and asset contexts: %w", err)
 	}

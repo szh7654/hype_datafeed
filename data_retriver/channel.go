@@ -16,7 +16,7 @@ var (
 	BlockOrderBookDiffChan      = make(chan BlockOrderBookDiff, 1000)
 	UserAndPositionSnapshotChan = make(chan map[uint64]Position, 1000)
 
-	UserStateWorkerChan = make(chan AddressWithUserId, 100000)
+	UserStateWorkerChan = make(chan AddrWithUserId, 100000)
 
 	UserStateResponseChan = make(chan UserStateWithId, 1000)
 )
@@ -25,8 +25,7 @@ type UserStateWithId struct {
 	UserId    uint32
 	UserState *UserState
 }
-
-type AddressWithUserId struct {
+type AddrWithUserId struct {
 	Address eth.Address
 	UserId  uint32
 }

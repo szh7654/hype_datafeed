@@ -23,29 +23,33 @@ var (
 		},
 		nil,
 	))
+	activeUsers map[uint32]eth.Address = make(map[uint32]eth.Address)
 )
 
 type User struct {
 	AccountValue      float64
 	TotalNtlPos       float64
 	CrossAccountValue float64
+	Pnl               float64
+	UnrealizedPnl     float64
 }
 
 func InitUsers(users []string) {
 	for _, user := range users {
-		_ = GetUser(eth.HexToAddress(user))
+		_, _ = GetUser(eth.HexToAddress(user))
 	}
 }
 
-func GetUser(address eth.Address) *User {
+func GetUser(address eth.Address) (*User, uint32) {
 	if userId, ok := AddressToUserId[address]; !ok {
+		userId = uint32(len(Users))
 		user := &User{}
 		UserAddrs = append(UserAddrs, address)
 		Users = append(Users, user)
-		AddressToUserId[address] = uint32(len(Users))
-		return user
+		AddressToUserId[address] = userId
+		return user, userId
 	} else {
-		return Users[userId]
+		return Users[userId], userId
 	}
 }
 

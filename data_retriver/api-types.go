@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"indexer/util"
 
-	eth "github.com/ethereum/go-ethereum/common"
 	"github.com/mailru/easyjson/opt"
 )
 
@@ -581,23 +580,18 @@ type BlockOrderBookDiff struct {
 	Events      []any       `json:"events"`
 }
 
-type FillEvent struct {
-	Address eth.Address `json:"address"`
-	Fill    Fill        `json:"event"`
-}
-
 type Fill struct {
 	Coin          string    `json:"coin"`
 	Px            float64   `json:"px,string"`
 	Sz            float64   `json:"sz,string"`
 	Side          Side      `json:"side"`
 	Time          int64     `json:"time"`
-	StartPosition float64   `json:"startPosition"`
+	StartPosition float64   `json:"startPosition,string"`
 	Dir           string    `json:"dir"`
-	ClosedPnl     float64   `json:"closedPnl"`
+	ClosedPnl     float64   `json:"closedPnl,string"`
 	Oid           uint64    `json:"oid"`
 	Crossed       bool      `json:"crossed"`
-	Fee           float64   `json:"fee"`
+	Fee           float64   `json:"fee,string"`
 	TwapId        opt.Int64 `json:"twapId"`
 }
 
