@@ -1,53 +1,131 @@
 package dataretriver
 
 import (
+	"encoding/json"
+	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
+	"github.com/bytedance/sonic"
+	"github.com/bytedance/sonic/ast"
 	eth "github.com/ethereum/go-ethereum/common"
 	jlexer "github.com/mailru/easyjson/jlexer"
-	jwriter "github.com/mailru/easyjson/jwriter"
+	"github.com/mailru/easyjson/jwriter"
 	"github.com/rs/zerolog/log"
 )
+
+type NSTime time.Time
+
+func (ct *NSTime) UnmarshalJSON(data []byte) error {
+	var str string
+	err := sonic.Unmarshal(data, &str)
+	if err != nil {
+		log.Warn().Msgf("Error unmarshaling Dir: cannot decode string from JSON data '%s': %v", string(data), err)
+		return nil
+	}
+	t, err := time.Parse("2006-01-02T15:04:05.000000000", str)
+	if err != nil {
+		log.Warn().Msgf("Error unmarshaling Dir: cannot parse time '%s': %v", str, err)
+		return nil
+	}
+	*ct = NSTime(t)
+	return nil
+}
+
+func (ct NSTime) MarshalJSON() ([]byte, error) {
+	str := time.Time(ct).Format("2006-01-02T15:04:05.000000000")
+	return sonic.Marshal(str)
+}
+
+type MSTime time.Time
+
+func (ct *MSTime) UnmarshalJSON(data []byte) error {
+	var str int64
+	err := sonic.Unmarshal(data, &str)
+	if err != nil {
+		log.Warn().Msgf("Error unmarshaling Dir: cannot decode string from JSON data '%s': %v", string(data), err)
+		return nil
+	}
+	t := time.UnixMilli(str)
+	*ct = MSTime(t)
+	return nil
+}
+
+func (ct MSTime) MarshalJSON() ([]byte, error) {
+	ms := time.Time(ct).Format("2006-01-02T15:04:05.000000000")
+	return sonic.Marshal(ms)
+}
+
+func (ct NSTime) Time() time.Time {
+	return time.Time(ct)
+}
+
+func (v *MetaAndAssetCtxs) UnmarshalJSON(data []byte) error {
+	var arr []json.RawMessage
+	if err := sonic.Unmarshal(data, &arr); err != nil {
+		return err
+	}
+	if len(arr) < 2 {
+		return fmt.Errorf("expected at least 2 elements in response, got %d", len(arr))
+	}
+	err := sonic.Unmarshal(arr[0], &v.Meta)
+	if err != nil {
+		return fmt.Errorf("failed to unmarshal meta: %w, raw: %s", err, string(data))
+	}
+	err = sonic.Unmarshal(arr[1], &v.Ctxs)
+	if err != nil {
+		return fmt.Errorf("failed to unmarshal asset contexts: %w", err)
+	}
+	return nil
+}
 
 type FillEvent struct {
 	Address eth.Address `json:"address"`
 	Fill    Fill        `json:"event"`
 }
 
-func (v *FillEvent) UnmarshalEasyJSON(in *jlexer.Lexer) {
-	// 如果是 null，直接跳过
-	if in.IsNull() {
-		in.Skip()
-		return
+func (v *FillEvent) UnmarshalJSON(data []byte) error {
+	var arr []json.RawMessage
+	if err := sonic.Unmarshal(data, &arr); err != nil {
+		return err
 	}
-	in.Delim('[')
-	if in.IsNull() {
-		in.Skip()
-	} else {
-		v.Address = eth.HexToAddress(in.UnsafeString())
-	}
-	in.WantComma()
-	v.Fill.UnmarshalEasyJSON(in)
 
-	in.Delim(']')
+	if len(arr) != 2 {
+		return fmt.Errorf("expected array of length 2, got %d", len(arr))
+	}
+
+	var addressStr string
+	if err := sonic.Unmarshal(arr[0], &addressStr); err != nil {
+		return err
+	}
+	v.Address = eth.HexToAddress(addressStr)
+
+	if err := sonic.Unmarshal(arr[1], &v.Fill); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 type OptFloat64 float64
 
-func (of *OptFloat64) UnmarshalEasyJSON(in *jlexer.Lexer) {
-	if in.IsNull() {
-		in.Skip()
-		return
+func (of *OptFloat64) UnmarshalJSON(data []byte) error {
+	if string(data) == "null" {
+		return nil
 	}
-	str := in.UnsafeString()
+	str := strings.Trim(string(data), "\" ")
 
 	if str != "" {
-		// Deleted:*of = OptFloat64(float64(str))
 		if f, err := strconv.ParseFloat(str, 64); err == nil {
 			*of = OptFloat64(f)
 		}
 	}
+	return nil
+}
+
+func (of OptFloat64) MarshalJSON() ([]byte, error) {
+	return sonic.Marshal(float64(of))
 }
 
 type Dir int
@@ -139,13 +217,23 @@ func (d *Dir) FromString(dirStr string) {
 
 // UnmarshalEasyJSON 实现 easyjson 的反序列化接口
 // 这是关键步骤，让 easyjson 知道如何将 JSON 字符串解析为此枚举类型
-func (d *Dir) UnmarshalEasyJSON(in *jlexer.Lexer) {
-	str := in.UnsafeString()
+func (d *Dir) UnmarshalJSON(data []byte) error {
+	var str string
+	if err := sonic.Unmarshal(data, &str); err != nil {
+		log.Warn().Msgf("Error unmarshaling Dir: cannot decode string from JSON data '%s': %v", string(data), err)
+		*d = DirUnknown
+		return nil
+	}
 	d.FromString(str)
+	return nil
 }
 
 func (d Dir) MarshalEasyJSON(out *jwriter.Writer) {
 	out.String(d.String())
+}
+
+func (d Dir) MarshalJSON() ([]byte, error) {
+	return sonic.Marshal(d.String())
 }
 
 // ----------------------------
@@ -228,13 +316,23 @@ func (s Status) String() string {
 	}
 }
 
-func (s *Status) UnmarshalEasyJSON(in *jlexer.Lexer) {
-	str := in.UnsafeString()
+func (s *Status) UnmarshalJSON(data []byte) error {
+	var str string
+	if err := sonic.Unmarshal(data, &str); err != nil {
+		log.Warn().Msgf("Error unmarshaling Status: cannot decode string from JSON data '%s': %v", string(data), err)
+		*s = StatusUnknown
+		return nil
+	}
 	s.FromString(str)
+	return nil
 }
 
 func (s Status) MarshalEasyJSON(out *jwriter.Writer) {
 	out.String(s.String())
+}
+
+func (s Status) MarshalJSON() ([]byte, error) {
+	return sonic.Marshal(s.String())
 }
 
 // ----------------------------
@@ -272,13 +370,23 @@ func (s Side) String() string {
 	}
 }
 
-func (s *Side) UnmarshalEasyJSON(in *jlexer.Lexer) {
-	str := in.UnsafeString()
+func (s *Side) UnmarshalJSON(data []byte) error {
+	var str string
+	if err := sonic.Unmarshal(data, &str); err != nil {
+		log.Warn().Msgf("Error unmarshaling Side: cannot decode string from JSON data '%s': %v", string(data), err)
+		*s = SideUnknown
+		return nil
+	}
 	s.FromString(str)
+	return nil
 }
 
 func (s Side) MarshalEasyJSON(out *jwriter.Writer) {
 	out.String(s.String())
+}
+
+func (s Side) MarshalJSON() ([]byte, error) {
+	return sonic.Marshal(s.String())
 }
 
 // ----------------------------
@@ -334,13 +442,23 @@ func (tct TriggerConditionType) String() string {
 	}
 }
 
-func (tct *TriggerConditionType) UnmarshalEasyJSON(in *jlexer.Lexer) {
-	str := in.UnsafeString()
+func (tct *TriggerConditionType) UnmarshalJSON(data []byte) error {
+	var str string
+	if err := sonic.Unmarshal(data, &str); err != nil {
+		log.Warn().Msgf("Error unmarshaling TriggerConditionType: cannot decode string from JSON data '%s': %v", string(data), err)
+		*tct = TriggerConditionUnknown
+		return nil
+	}
 	tct.FromString(str)
+	return nil
 }
 
 func (tct TriggerConditionType) MarshalEasyJSON(out *jwriter.Writer) {
 	out.String(tct.String())
+}
+
+func (tct TriggerConditionType) MarshalJSON() ([]byte, error) {
+	return sonic.Marshal(tct.String())
 }
 
 // ----------------------------
@@ -359,6 +477,13 @@ const (
 	OrderTypeTakeProfitLimit
 	OrderTypeSpotDustConversion
 )
+
+func (ot OrderType) IsLimit() bool {
+	if ot == OrderTypeLimit || ot == OrderTypeStopLimit || ot == OrderTypeTakeProfitLimit {
+		return true
+	}
+	return false
+}
 
 func (ot *OrderType) FromString(orderTypeStr string) {
 	switch orderTypeStr {
@@ -403,13 +528,23 @@ func (ot OrderType) String() string {
 	}
 }
 
-func (ot *OrderType) UnmarshalEasyJSON(in *jlexer.Lexer) {
-	str := in.UnsafeString()
+func (ot *OrderType) UnmarshalJSON(data []byte) error {
+	var str string
+	if err := sonic.Unmarshal(data, &str); err != nil {
+		log.Warn().Msgf("Error unmarshaling OrderType: cannot decode string from JSON data '%s': %v", string(data), err)
+		*ot = OrderTypeUnknown
+		return nil
+	}
 	ot.FromString(str)
+	return nil
 }
 
 func (ot OrderType) MarshalEasyJSON(out *jwriter.Writer) {
 	out.String(ot.String())
+}
+
+func (ot OrderType) MarshalJSON() ([]byte, error) {
+	return sonic.Marshal(ot.String())
 }
 
 type LeverageType int
@@ -443,13 +578,23 @@ func (lt LeverageType) String() string {
 	}
 }
 
-func (lt *LeverageType) UnmarshalEasyJSON(in *jlexer.Lexer) {
-	str := in.UnsafeString()
+func (lt *LeverageType) UnmarshalJSON(data []byte) error {
+	var str string
+	if err := sonic.Unmarshal(data, &str); err != nil {
+		log.Warn().Msgf("Error unmarshaling LeverageType: cannot decode string from JSON data '%s': %v", string(data), err)
+		*lt = LeverageTypeUnknown
+		return nil
+	}
 	lt.FromString(str)
+	return nil
 }
 
 func (lt LeverageType) MarshalEasyJSON(out *jwriter.Writer) {
 	out.String(lt.String())
+}
+
+func (lt LeverageType) MarshalJSON() ([]byte, error) {
+	return sonic.Marshal(lt.String())
 }
 
 type PositionType int
@@ -483,13 +628,19 @@ func (pt PositionType) String() string {
 	}
 }
 
-func (pt *PositionType) UnmarshalEasyJSON(in *jlexer.Lexer) {
-	str := in.UnsafeString()
+func (pt *PositionType) UnmarshalJSON(data []byte) error {
+	var str string
+	if err := sonic.Unmarshal(data, &str); err != nil {
+		log.Warn().Msgf("Error unmarshaling PositionType: cannot decode string from JSON data '%s': %v", string(data), err)
+		*pt = PositionTypeUnknown
+		return nil
+	}
 	pt.FromString(str)
+	return nil
 }
 
-func (pt PositionType) MarshalEasyJSON(out *jwriter.Writer) {
-	out.String(pt.String())
+func (pt PositionType) MarshalJSON() ([]byte, error) {
+	return sonic.Marshal(pt.String())
 }
 
 // ----------------------------
@@ -563,10 +714,199 @@ func (tif Tif) String() string {
 	}
 }
 
-func (tif *Tif) UnmarshalEasyJSON(in *jlexer.Lexer) {
-	tif.FromJSONValue(in)
+func (tif *Tif) UnmarshalJSON(data []byte) error {
+	var str string
+	if err := sonic.Unmarshal(data, &str); err != nil {
+		// Check if it's a null value
+		if string(data) == "null" {
+			*tif = TifNull
+			return nil
+		}
+		log.Warn().Msgf("Error unmarshaling Tif: cannot decode string from JSON data '%s': %v", string(data), err)
+		*tif = TifUnknown
+		return nil
+	}
+	tif.FromString(str)
+	return nil
 }
 
 func (tif Tif) MarshalEasyJSON(out *jwriter.Writer) {
 	out.String(tif.String())
+}
+
+func (tif Tif) MarshalJSON() ([]byte, error) {
+	return sonic.Marshal(tif.String())
+}
+
+type ActionType int
+
+const (
+	ActionTypeNew ActionType = iota
+	ActionTypeUpdate
+	ActionTypeRemove
+	ActionTypeUnknown
+)
+
+func (v ActionType) MarshalJSON() ([]byte, error) {
+	switch v {
+	case ActionTypeNew:
+		return sonic.Marshal("new")
+	case ActionTypeUpdate:
+		return sonic.Marshal("update")
+	case ActionTypeRemove:
+		return sonic.Marshal("remove")
+	default:
+		return sonic.Marshal("unknown")
+	}
+}
+
+type OrderBookDiffAction struct {
+	ActionType ActionType
+	OrigSz     float64
+	NewSz      float64
+}
+
+func (v *OrderBookDiffAction) UnmarshalJSON(data []byte) error {
+	// 1. 使用 sonic AST 解析 JSON 数据
+	node, err := sonic.Get(data)
+	if err != nil {
+		return err // 返回 sonic 解析错误
+	}
+
+	// 2. 根据 AST 节点类型进行分发处理
+	switch node.Type() {
+	case ast.V_STRING:
+		str, err := node.String()
+		if err != nil {
+			log.Warn().Msgf("cannot decode string from JSON data '%s': %v", string(data), err)
+			v.ActionType = ActionTypeUnknown
+		}
+		if str == "remove" {
+			v.ActionType = ActionTypeRemove
+		} else {
+			log.Warn().Msgf("Unknown action type: %s", str)
+			v.ActionType = ActionTypeUnknown
+		}
+	case ast.V_OBJECT:
+		// 处理对象类型: "raw_book_diff": { ... }
+		// 遍历对象的键（应该只有一个键：'update' 或 'new'）
+		sanner := func(path ast.Sequence, node *ast.Node) bool {
+
+			switch *path.Key {
+			case "update":
+				v.ActionType = ActionTypeUpdate
+				v.OrigSz = parseFloatStr("origSz", node)
+				v.NewSz = parseFloatStr("newSz", node)
+			case "new":
+				v.ActionType = ActionTypeNew
+				v.NewSz = parseFloatStr("sz", node)
+			}
+			return true
+		}
+		err = node.ForEach(sanner)
+		if err != nil {
+			v.ActionType = ActionTypeUnknown
+			return nil
+		}
+
+	default:
+		v.ActionType = ActionTypeUnknown
+		log.Warn().Msgf("Error unmarshaling OrderBookDiffAction: unsupported JSON type: %v", node.Type())
+	}
+
+	return nil
+}
+
+func parseFloatStr(key string, node *ast.Node) float64 {
+	floatStr, err := node.Get(key).String()
+	if err != nil {
+		log.Warn().Msgf("Error unmarshaling OrderBookDiffAction: cannot decode %s from JSON data '%v': %v", key, node, err)
+		return 0
+	}
+	floatVal, err := strconv.ParseFloat(floatStr, 64)
+	if err != nil {
+		log.Warn().Msgf("Error unmarshaling OrderBookDiffAction: cannot decode %s from JSON data '%v': %v", key, node, err)
+		return 0
+	}
+	return floatVal
+}
+
+type L4SnapShot struct {
+	BlockNumber uint32
+	AssetOrders []AssetOrders
+}
+
+type AssetOrders struct {
+	Name      string
+	BidOrders []AddrOrder
+	AskOrders []AddrOrder
+}
+
+type AddrOrder struct {
+	Addr  eth.Address
+	Order Order
+}
+
+func (v *L4SnapShot) UnmarshalJSON(data []byte) error {
+	var arr []json.RawMessage
+	if err := sonic.Unmarshal(data, &arr); err != nil {
+		panic(err)
+	}
+	if len(arr) < 2 {
+		panic("expected at least 2 elements in response, got %d")
+	}
+	if err := sonic.Unmarshal(arr[0], &v.BlockNumber); err != nil {
+		panic(err)
+	}
+
+	if err := sonic.Unmarshal(arr[1], &v.AssetOrders); err != nil {
+		panic(err)
+	}
+
+	return nil
+}
+
+func (v *AssetOrders) UnmarshalJSON(data []byte) error {
+	var arr []json.RawMessage
+	if err := sonic.Unmarshal(data, &arr); err != nil {
+		panic(err)
+	}
+	if len(arr) < 2 {
+		panic("")
+	}
+	if err := sonic.Unmarshal(arr[0], &v.Name); err != nil {
+		panic(err)
+	}
+	var arr1 []json.RawMessage
+	if err := sonic.Unmarshal(arr[1], &arr1); err != nil {
+		return err
+	}
+	if len(arr1) < 2 {
+		panic("expected at least 2 elements in bids and asks, got %d")
+	}
+	if err := sonic.Unmarshal(arr1[0], &v.BidOrders); err != nil {
+		panic(err)
+	}
+	if err := sonic.Unmarshal(arr1[1], &v.AskOrders); err != nil {
+		panic(err)
+	}
+	return nil
+
+}
+
+func (v *AddrOrder) UnmarshalJSON(data []byte) error {
+	var arr []json.RawMessage
+	if err := sonic.Unmarshal(data, &arr); err != nil {
+		panic(err)
+	}
+	if len(arr) < 2 {
+		panic("")
+	}
+	if err := sonic.Unmarshal(arr[0], &v.Addr); err != nil {
+		panic(err)
+	}
+	if err := sonic.Unmarshal(arr[1], &v.Order); err != nil {
+		panic(err)
+	}
+	return nil
 }

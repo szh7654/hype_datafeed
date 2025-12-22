@@ -71,13 +71,12 @@ func main() {
 		wg.Add(1)
 		go func(workerID int) {
 			defer wg.Done()
-			client := dr.NewClient(dr.LocalAPIURL, false)
 			// 每个goroutine从不同的位置开始处理地址
 			for j := 0; ; j++ {
 				address := validUsers[(workerID+j)%len(validUsers)]
 
 				// 对每个地址发起 UserState 请求
-				_, err := client.UserState(address)
+				_, err := dr.FetchUserState(address)
 				if err != nil {
 					log.Error().Err(err).Str("address", address).Msg("Failed to get user state")
 				} else {

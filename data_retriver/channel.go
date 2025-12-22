@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/bytedance/sonic"
 	eth "github.com/ethereum/go-ethereum/common"
 	"github.com/rs/zerolog/log"
 )
@@ -32,6 +33,7 @@ type AddrWithUserId struct {
 
 func Start(ctx context.Context, wg *sync.WaitGroup) {
 	fetchUserStateRoutine(ctx, wg)
+	fetchAssetRoutine(ctx, wg)
 	readFillBlockRoutine(ctx, wg)
 	readOrderStatusBlockRoutine(ctx, wg)
 	readOrderBookDiffBlockRoutine(ctx, wg)
@@ -43,17 +45,22 @@ func fetchUserStateRoutine(ctx context.Context, wg *sync.WaitGroup) {
 	}
 }
 
+func fetchAssetRoutine(ctx context.Context, wg *sync.WaitGroup) {
+	go func() {
+
+	}()
+}
+
 func fetchUserStateWorker(ctx context.Context, wg *sync.WaitGroup) {
 	wg.Add(1)
 	defer wg.Done()
 
-	client := NewClient(LocalAPIURL, false)
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case addressWithUserId := <-UserStateWorkerChan:
-			userState, err := client.UserState(addressWithUserId.Address.String())
+			userState, err := FetchUserState(addressWithUserId.Address.String())
 			if err != nil {
 				log.Error().Err(err).Send()
 				time.Sleep(100 * time.Millisecond)
@@ -79,7 +86,7 @@ func readFillBlockRoutine(ctx context.Context, wg *sync.WaitGroup) {
 				return
 			case line := <-tailer.Lines:
 				var blockFill BlockFill
-				err := blockFill.UnmarshalJSON([]byte(line))
+				err := sonic.Unmarshal([]byte(line), &blockFill)
 				if err != nil {
 					log.Error().Err(err).Send()
 					continue
@@ -101,7 +108,7 @@ func readOrderStatusBlockRoutine(ctx context.Context, wg *sync.WaitGroup) {
 				return
 			case line := <-tailer.Lines:
 				var blockOrderStatus BlockOrderStatus
-				err := blockOrderStatus.UnmarshalJSON([]byte(line))
+				err := sonic.UnmarshalString(line, &blockOrderStatus)
 				if err != nil {
 					log.Error().Err(err).Send()
 					continue
@@ -123,7 +130,7 @@ func readOrderBookDiffBlockRoutine(ctx context.Context, wg *sync.WaitGroup) {
 				return
 			case line := <-tailer.Lines:
 				var blockOrderBookDiff BlockOrderBookDiff
-				err := blockOrderBookDiff.UnmarshalJSON([]byte(line))
+				err := sonic.UnmarshalString(line, &blockOrderBookDiff)
 				if err != nil {
 					log.Error().Err(err).Send()
 					continue

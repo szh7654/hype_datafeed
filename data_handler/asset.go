@@ -3,6 +3,7 @@ package datahandler
 import (
 	dr "indexer/data_retriver"
 	"indexer/util"
+	"math"
 )
 
 var (
@@ -25,14 +26,15 @@ type Asset struct {
 func AddAsset(asset Asset, name string) {
 	AssetNames = append(AssetNames, name)
 	Assets = append(Assets, &asset)
+	addBook()
 	NameToAssetId[name] = uint16(len(Assets))
 }
 
-func GetAsset(name string) *Asset {
+func GetAsset(name string) (*Asset, uint16) {
 	if assetId, ok := NameToAssetId[name]; !ok {
-		return nil
+		return nil, math.MaxUint16
 	} else {
-		return Assets[assetId]
+		return Assets[assetId], assetId
 	}
 }
 

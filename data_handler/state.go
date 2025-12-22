@@ -66,17 +66,21 @@ func init() {
 
 }
 
-func Start(ctx context.Context, wg *sync.WaitGroup) {
-
+func preStart() {
 	users := util.ExtractUser()
 	InitUsers(users)
-	client := dr.NewClient(dr.LocalAPIURL, false)
-	metaAndAssetCtxs, err := client.MetaAndAssetCtxs()
+	metaAndAssetCtxs, err := dr.FetchMetaAndAssetCtxs()
 	if err != nil {
 		panic(err)
 	}
 	InitAssets(*metaAndAssetCtxs)
 
+	l4Snapshot := dr.FetchL4Snapshot()
+	applyL4Snapshot(l4Snapshot)
+}
+
+func Start(ctx context.Context, wg *sync.WaitGroup) {
+	preStart()
 	ueserStateReqTicker := time.NewTicker(1 * time.Minute)
 	minuteSnapshotTicker := time.NewTicker(1 * time.Minute)
 	go func() {
@@ -170,11 +174,64 @@ func applyBlockFill(blockfill dr.BlockFill) {
 }
 
 func applyBlockOrderStatus(blockOrderStatus dr.BlockOrderStatus) {
-	panic("unimplemented")
+	OrderStatusBlockNumber = blockOrderStatus.BlockNumber
+	for _, orderStatus := range blockOrderStatus.Events {
+		_, userId := GetUser(orderStatus.User)
+		activeUsers[userId] = orderStatus.User
+		order := orderStatus.Order
+		asset, assetId := GetAsset(order.Coin)
+		if asset != nil {
+			book := books[assetId]
+			switch orderStatus.Order.IsTrigger {
+			case true:
+				switch orderStatus.Status {
+				case dr.StatusOpen:
+					switch order.Side {
+					case dr.SideA:
+						book.TriggerAsks.applyLevelAction(LevelAction{Px: order.TriggerPx, Sz: order.Sz, Oid: order.Oid, UserId: userId, ActionType: dr.ActionTypeNew})
+					case dr.SideB:
+						book.TriggerBids.applyLevelAction(LevelAction{Px: order.TriggerPx, Sz: order.Sz, Oid: order.Oid, UserId: userId, ActionType: dr.ActionTypeNew})
+					}					
+				default:
+					switch order.Side {
+					case dr.SideA:
+						book.TriggerAsks.applyLevelAction(LevelAction{Px: order.TriggerPx, Sz: order.Sz, Oid: order.Oid, UserId: userId, ActionType: dr.ActionTypeRemove})
+					case dr.SideB:
+						book.TriggerBids.applyLevelAction(LevelAction{Px: order.TriggerPx, Sz: order.Sz, Oid: order.Oid, UserId: userId, ActionType: dr.ActionTypeRemove})
+					}
+				}
+			}
+		}
+	}
 }
 
 func applyBlockOrderBookDiff(blockOrderBookDiff dr.BlockOrderBookDiff) {
-	panic("unimplemented")
+	OrderBookDiffBlockNumber = blockOrderBookDiff.BlockNumber
+	for _, orderBookDiff := range blockOrderBookDiff.Events {
+		_, userId := GetUser(orderBookDiff.User)
+		activeUsers[userId] = orderBookDiff.User
+		asset, assetId := GetAsset(orderBookDiff.Coin)
+		if asset != nil {
+			book := books[assetId]
+			switch orderBookDiff.Side {
+			case dr.SideA:
+				book.LimitAsks.applyOrderBookDiff(userId, orderBookDiff)
+			case dr.SideB:
+				book.LimitBids.applyOrderBookDiff(userId, orderBookDiff)
+			}
+		}
+	}
+}
+
+func applyL4Snapshot(l4Snapshot *dr.L4SnapShot) {
+	OrderBookDiffBlockNumber = l4Snapshot.BlockNumber
+	for _, assetOrders := range l4Snapshot.AssetOrders {
+		if id, ok := NameToAssetId[assetOrders.Name]; ok {
+			book := books[id]
+			book.applyAsks(assetOrders.AskOrders)
+			book.applyBids(assetOrders.BidOrders)
+		}
+	}
 }
 
 func generateMinuteSnapshot() {

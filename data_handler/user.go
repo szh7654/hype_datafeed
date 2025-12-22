@@ -40,6 +40,10 @@ func InitUsers(users []string) {
 	}
 }
 
+func setActive(userId uint32, address eth.Address) {
+	activeUsers[userId] = address
+}
+
 func GetUser(address eth.Address) (*User, uint32) {
 	if userId, ok := AddressToUserId[address]; !ok {
 		userId = uint32(len(Users))

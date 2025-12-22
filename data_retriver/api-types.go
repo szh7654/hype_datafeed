@@ -2,8 +2,8 @@ package dataretriver
 
 import (
 	"encoding/json"
-	"indexer/util"
 
+	eth "github.com/ethereum/go-ethereum/common"
 	"github.com/mailru/easyjson/opt"
 )
 
@@ -50,8 +50,7 @@ type MarginTable struct {
 }
 
 type Meta struct {
-	Universe     []AssetInfo   `json:"universe"`
-	MarginTables []MarginTable `json:"marginTables"`
+	Universe []AssetInfo `json:"universe"`
 }
 
 type AssetCtx struct {
@@ -560,24 +559,24 @@ type PerpDeployAuctionStatus struct {
 }
 
 type BlockFill struct {
-	LocalTime   util.NSTime `json:"local_time"`
-	BlockTime   util.NSTime `json:"block_time"`
+	LocalTime   NSTime      `json:"local_time"`
+	BlockTime   NSTime      `json:"block_time"`
 	BlockNumber uint32      `json:"block_number"`
 	Events      []FillEvent `json:"events"`
 }
 
 type BlockOrderStatus struct {
-	LocalTime   util.NSTime `json:"local_time"`
-	BlockTime   util.NSTime `json:"block_time"`
-	BlockNumber uint32      `json:"block_number"`
-	Events      []any       `json:"events"`
+	LocalTime   NSTime        `json:"local_time"`
+	BlockTime   NSTime        `json:"block_time"`
+	BlockNumber uint32        `json:"block_number"`
+	Events      []StatusOrder `json:"events"`
 }
 
 type BlockOrderBookDiff struct {
-	LocalTime   util.NSTime `json:"local_time"`
-	BlockTime   util.NSTime `json:"block_time"`
-	BlockNumber uint32      `json:"block_number"`
-	Events      []any       `json:"events"`
+	LocalTime   NSTime          `json:"local_time"`
+	BlockTime   NSTime          `json:"block_time"`
+	BlockNumber uint32          `json:"block_number"`
+	Events      []OrderBookDiff `json:"events"`
 }
 
 type Fill struct {
@@ -585,7 +584,7 @@ type Fill struct {
 	Px            float64   `json:"px,string"`
 	Sz            float64   `json:"sz,string"`
 	Side          Side      `json:"side"`
-	Time          int64     `json:"time"`
+	Time          MSTime    `json:"time"`
 	StartPosition float64   `json:"startPosition,string"`
 	Dir           string    `json:"dir"`
 	ClosedPnl     float64   `json:"closedPnl,string"`
@@ -644,4 +643,37 @@ type CrossMarginSummary struct {
 	// TotalMarginUsed string  `json:"totalMarginUsed"`
 	// TotalNtlPos     string  `json:"totalNtlPos"`
 	// TotalRawUsd     string  `json:"totalRawUsd"`
+}
+
+type StatusOrder struct {
+	Time   NSTime      `json:"time"`
+	User   eth.Address `json:"user"`
+	Order  Order       `json:"order"`
+	Status Status      `json:"status"`
+}
+type Order struct {
+	Coin             string               `json:"coin"`
+	Side             Side                 `json:"side"`
+	LimitPx          float64              `json:"limitPx,string"` // 使用 ,string 标签指示从 JSON 字符串反序列化
+	Sz               float64              `json:"sz,string"`      // 同上
+	Timestamp        MSTime               `json:"timestamp"`      // 自定义类型，需实现 Unmarshaler/Marshaler
+	TriggerCondition TriggerConditionType `json:"triggerCondition"`
+	IsTrigger        bool                 `json:"isTrigger"`
+	TriggerPx        float64              `json:"triggerPx,string"` // 同上
+	Children         []Order              `json:"children"`         // 递归结构体
+	IsPositionTpsl   bool                 `json:"isPositionTpsl"`
+	ReduceOnly       bool                 `json:"reduceOnly"`
+	OrderType        OrderType            `json:"orderType"`
+	OrigSz           float64              `json:"origSz,string"` // 同上
+	Tif              Tif                  `json:"tif"`           // 自定义反序列化处理见下方
+	Oid              uint64               `json:"oid"`
+}
+
+type OrderBookDiff struct {
+	User                eth.Address         `json:"user"`
+	Oid                 uint64              `json:"oid"`
+	Coin                string              `json:"coin"`
+	Side                Side                `json:"side"`
+	Px                  float64             `json:"px,string"`
+	OrderBookDiffAction OrderBookDiffAction `json:"raw_book_diff"`
 }
