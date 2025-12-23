@@ -8,9 +8,9 @@ import (
 	"time"
 
 	"github.com/apache/arrow/go/v18/arrow/memory"
-	eth "github.com/ethereum/go-ethereum/common"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
+	"github.com/rs/zerolog/log"
 )
 
 var pool = memory.NewGoAllocator()
@@ -41,19 +41,19 @@ func init() {
 		})
 
 	promauto.NewGaugeFunc(
-		prometheus.GaugeOpts{Name: "fill_block_number"},
+		prometheus.GaugeOpts{Name: "block_fill_number"},
 		func() float64 {
 			return float64(FillBlockNumber)
 		})
 
 	promauto.NewGaugeFunc(
-		prometheus.GaugeOpts{Name: "order_status_block_number"},
+		prometheus.GaugeOpts{Name: "block_order_status_number"},
 		func() float64 {
 			return float64(OrderStatusBlockNumber)
 		})
 
 	promauto.NewGaugeFunc(
-		prometheus.GaugeOpts{Name: "order_book_diff_block_number"},
+		prometheus.GaugeOpts{Name: "block_order_book_diff_number"},
 		func() float64 {
 			return float64(OrderBookDiffBlockNumber)
 		})
@@ -61,51 +61,52 @@ func init() {
 	promauto.NewGaugeFunc(
 		prometheus.GaugeOpts{Name: "block_idle_time"},
 		func() float64 {
-			return float64(time.Now().Sub(LatestBlockTime).Milliseconds())
+			return float64(time.Since(LatestBlockTime).Milliseconds())
 		})
 
 }
 
-func preStart() {
-	users := util.ExtractUser()
-	InitUsers(users)
-	metaAndAssetCtxs, err := dr.FetchMetaAndAssetCtxs()
-	if err != nil {
-		panic(err)
-	}
-	InitAssets(*metaAndAssetCtxs)
-
-	l4Snapshot := dr.FetchL4Snapshot()
-	applyL4Snapshot(l4Snapshot)
-}
 
 func Start(ctx context.Context, wg *sync.WaitGroup) {
-	preStart()
 	ueserStateReqTicker := time.NewTicker(1 * time.Minute)
 	minuteSnapshotTicker := time.NewTicker(1 * time.Minute)
+
 	go func() {
 		defer wg.Done()
+		log.Info().Msg("start data handler loop")
 		for {
 			select {
 			case <-ctx.Done():
+				log.Info().Msg("data handler loop exit")
 				return
-
+			case l4snapshot := <-dr.L4SnapShotChan:
+				log.Info().Msg("l4 snapshot received")
+				ApplyL4Snapshot(l4snapshot)
+				log.Info().Msg("l4 snapshot applied")
 			case <-ueserStateReqTicker.C:
+				//log.Info().Msg("send user state request")
 				sendAndResetActiveUser()
-
+				//log.Info().Msg("send user state request done")
 			case <-minuteSnapshotTicker.C:
+				//log.Info().Msg("generate minute snapshot")
 				generateMinuteSnapshot()
-
+				//log.Info().Msg("generate minute snapshot done")
 			case UserStateWithId := <-dr.UserStateResponseChan:
+				//log.Info().Msg("apply user state")
 				applyUserState(UserStateWithId.UserState, UserStateWithId.UserId)
-
+				//log.Info().Msg("apply user state done")
 			case blockfill := <-dr.BlockFillChan:
+				//log.Info().Msg("apply block fill")
 				applyBlockFill(blockfill)
+				//log.Info().Msg("apply block fill done")
 			case blockOrderStatus := <-dr.BlockOrderStatusChan:
+				//log.Info().Msg("apply block order status")
 				applyBlockOrderStatus(blockOrderStatus)
-
+				//log.Info().Msg("apply block order status done")
 			case blockOrderBookDiff := <-dr.BlockOrderBookDiffChan:
-				applyBlockOrderBookDiff(blockOrderBookDiff)
+				//log.Info().Msg("apply block order book diff")
+				applyBlockOrderBookDiffPre(blockOrderBookDiff)
+				//log.Info().Msg("apply block order book diff done")
 			}
 		}
 	}()
@@ -119,16 +120,14 @@ func sendAndResetActiveUser() {
 			Address: addr,
 		}
 	}
-	activeUsers = make(map[uint32]eth.Address, len(activeUsers))
+	clear(activeUsers)
 }
 
 func applyUserState(userState *dr.UserState, userId uint32) {
 	user := Users[userId]
 	user.AccountValue = userState.MarginSummary.AccountValue
 	user.TotalNtlPos = userState.MarginSummary.TotalNtlPos
-
 	user.CrossAccountValue = userState.CrossMarginSummary.AccountValue
-
 	// TODO: 补全liquidationPx
 
 	for _, position := range userState.AssetPositions {
@@ -167,9 +166,40 @@ func applyBlockFill(blockfill dr.BlockFill) {
 	blockLatency.Observe(latency.Seconds())
 	LatestBlockTime = util.MaxTime(LatestBlockTime, time.Time(blockfill.BlockTime))
 	for _, fillEvent := range blockfill.Events {
-		user, userId := GetUser(fillEvent.Address)
-		activeUsers[userId] = fillEvent.Address
-		user.Pnl += fillEvent.Fill.ClosedPnl
+		applyFillEvent(fillEvent)
+
+	}
+}
+
+func applyFillEvent(fillEvent dr.FillEvent) {
+	user, userId := GetUser(fillEvent.Address)
+	activeUsers[userId] = fillEvent.Address
+	user.Pnl += fillEvent.Fill.ClosedPnl
+	if fillEvent.Fill.Liquidation != nil {
+		_, liquidationUserId := GetUser(fillEvent.Fill.Liquidation.LiquidationUser)
+		asset, assetId := GetAsset(fillEvent.Fill.Coin)
+		if asset != nil {
+			if userId != liquidationUserId {
+				ProviderLiquidations = append(ProviderLiquidations, Liquidation{
+					UserId:        userId,
+					AssetId:       assetId,
+					Szi:           fillEvent.Fill.Sz,
+					MarkPx:        fillEvent.Fill.Liquidation.MarkPx,
+					PositionValue: fillEvent.Fill.Px * fillEvent.Fill.Sz,
+					ClosedPnl:     fillEvent.Fill.ClosedPnl,
+				})
+			} else {
+				UnderLiquidations = append(UnderLiquidations, Liquidation{
+					UserId:        userId,
+					AssetId:       assetId,
+					Szi:           fillEvent.Fill.Sz,
+					MarkPx:        fillEvent.Fill.Liquidation.MarkPx,
+					PositionValue: fillEvent.Fill.Px * fillEvent.Fill.Sz,
+					ClosedPnl:     fillEvent.Fill.ClosedPnl,
+				})
+			}
+		}
+
 	}
 }
 
@@ -191,7 +221,7 @@ func applyBlockOrderStatus(blockOrderStatus dr.BlockOrderStatus) {
 						book.TriggerAsks.applyLevelAction(LevelAction{Px: order.TriggerPx, Sz: order.Sz, Oid: order.Oid, UserId: userId, ActionType: dr.ActionTypeNew})
 					case dr.SideB:
 						book.TriggerBids.applyLevelAction(LevelAction{Px: order.TriggerPx, Sz: order.Sz, Oid: order.Oid, UserId: userId, ActionType: dr.ActionTypeNew})
-					}					
+					}
 				default:
 					switch order.Side {
 					case dr.SideA:
@@ -201,15 +231,66 @@ func applyBlockOrderStatus(blockOrderStatus dr.BlockOrderStatus) {
 					}
 				}
 			}
+			for _, order := range orderStatus.Order.Children {
+				switch order.IsTrigger {
+				case true:
+					switch orderStatus.Status {
+					case dr.StatusOpen:
+						switch order.Side {
+						case dr.SideA:
+							book.TriggerAsks.applyLevelAction(LevelAction{Px: order.TriggerPx, Sz: order.Sz, Oid: order.Oid, UserId: userId, ActionType: dr.ActionTypeNew})
+						case dr.SideB:
+							book.TriggerBids.applyLevelAction(LevelAction{Px: order.TriggerPx, Sz: order.Sz, Oid: order.Oid, UserId: userId, ActionType: dr.ActionTypeNew})
+						}
+					default:
+						switch order.Side {
+						case dr.SideA:
+							book.TriggerAsks.applyLevelAction(LevelAction{Px: order.TriggerPx, Sz: order.Sz, Oid: order.Oid, UserId: userId, ActionType: dr.ActionTypeRemove})
+						case dr.SideB:
+							book.TriggerBids.applyLevelAction(LevelAction{Px: order.TriggerPx, Sz: order.Sz, Oid: order.Oid, UserId: userId, ActionType: dr.ActionTypeRemove})
+						}
+					}
+				}
+			}
 		}
 	}
 }
 
+var (
+	l4SnapshotBlockNumber  uint32 = 0
+	preBlockOrderBookDiffs        = []dr.BlockOrderBookDiff{}
+	isSync                        = false
+)
+
+func applyBlockOrderBookDiffPre(blockOrderBookDiff dr.BlockOrderBookDiff) {
+	if isSync {
+		applyBlockOrderBookDiff(blockOrderBookDiff)
+		return
+	}
+	if l4SnapshotBlockNumber == 0 { // 尚未读取snapshot
+		log.Info().Msgf("l4SnapshotBlockNumber=0, append preBlockOrderBookDiffs, blockNumber: %d, delay: %s", blockOrderBookDiff.BlockNumber, time.Since(time.Time(blockOrderBookDiff.BlockTime)))
+		preBlockOrderBookDiffs = append(preBlockOrderBookDiffs, blockOrderBookDiff)
+	} else {
+		log.Info().Msgf("l4SnapshotBlockNumber>0, apply preBlockOrderBookDiffs, preBlockOrderBookDiffs range: %d ~ %d", preBlockOrderBookDiffs[0].BlockNumber, preBlockOrderBookDiffs[len(preBlockOrderBookDiffs)-1].BlockNumber)
+		for _, preBlockOrderBookDiff := range preBlockOrderBookDiffs {
+			if preBlockOrderBookDiff.BlockNumber > l4SnapshotBlockNumber {
+				applyBlockOrderBookDiff(preBlockOrderBookDiff)
+			}
+		}
+		if blockOrderBookDiff.BlockNumber > l4SnapshotBlockNumber {
+			applyBlockOrderBookDiff(blockOrderBookDiff)
+		}
+		clear(preBlockOrderBookDiffs)
+		isSync = true
+	}
+}
+
 func applyBlockOrderBookDiff(blockOrderBookDiff dr.BlockOrderBookDiff) {
+	log.Info().Msgf("applying block order book diff, blockNumber: %d", blockOrderBookDiff.BlockNumber)
 	OrderBookDiffBlockNumber = blockOrderBookDiff.BlockNumber
 	for _, orderBookDiff := range blockOrderBookDiff.Events {
 		_, userId := GetUser(orderBookDiff.User)
-		activeUsers[userId] = orderBookDiff.User
+		setActive(userId, orderBookDiff.User)
 		asset, assetId := GetAsset(orderBookDiff.Coin)
 		if asset != nil {
 			book := books[assetId]
@@ -223,17 +304,28 @@ func applyBlockOrderBookDiff(blockOrderBookDiff dr.BlockOrderBookDiff) {
 	}
 }
 
-func applyL4Snapshot(l4Snapshot *dr.L4SnapShot) {
-	OrderBookDiffBlockNumber = l4Snapshot.BlockNumber
-	for _, assetOrders := range l4Snapshot.AssetOrders {
-		if id, ok := NameToAssetId[assetOrders.Name]; ok {
+func ApplyL4Snapshot(l4Snapshot *dr.L4SnapShot) {
+	log.Info().Msgf("applying l4 snapshot, blockNumber: %d", l4Snapshot.BlockNumber)
+	l4SnapshotBlockNumber = l4Snapshot.BlockNumber
+	for _, assetSnapShot := range l4Snapshot.AssetSnapShots {
+		if id, ok := NameToAssetId[assetSnapShot.Name]; ok {
 			book := books[id]
-			book.applyAsks(assetOrders.AskOrders)
-			book.applyBids(assetOrders.BidOrders)
+			bookOrders := assetSnapShot.BookOrdersAndUntriggeredOrders.BookOrders
+			untriggerredOrders := assetSnapShot.BookOrdersAndUntriggeredOrders.UntriggeredOrders
+			book.LimitBids.applyaLimitAddrOrders(bookOrders.AskOrders)
+			book.LimitAsks.applyaLimitAddrOrders(bookOrders.BidOrders)
+			for _, untriggeredOrder := range untriggerredOrders {
+				switch untriggeredOrder.Order.Side {
+				case dr.SideA:
+					book.TriggerAsks.applyTriggerAddrOrder(untriggeredOrder)
+				case dr.SideB:
+					book.TriggerBids.applyTriggerAddrOrder(untriggeredOrder)
+				}
+			}
 		}
 	}
 }
 
 func generateMinuteSnapshot() {
-	panic("unimplemented")
+	log.Info().Msg("Generating minute snapshot")
 }

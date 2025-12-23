@@ -2,26 +2,38 @@ package util
 
 import (
 	"context"
+	"io"
 	"path/filepath"
 	"strconv"
 	"sync"
 	"time"
 
 	"github.com/nxadm/tail"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/rs/zerolog/log"
 )
 
 // HourlyTailer 结构体
 type HourlyTailer struct {
-	baseDir string
-	Lines   chan string
+	baseDir     string
+	Lines       chan string
+	lineCounter prometheus.Counter
 }
+
+var tailLines = promauto.NewCounterVec(
+	prometheus.CounterOpts{
+		Name: "tail_lines_total",
+	},
+	[]string{"dir"},
+)
 
 func NewTailer(baseDir string, ctx context.Context, wg *sync.WaitGroup) *HourlyTailer {
 	h := &HourlyTailer{
 		baseDir: baseDir,
 		// 缓冲区稍微大一点，防止双倍流量写入时阻塞
-		Lines: make(chan string, 2048),
+		Lines:       make(chan string, 2048),
+		lineCounter: tailLines.WithLabelValues(baseDir),
 	}
 	wg.Add(1)
 	go h.managerLoop(ctx, wg)
@@ -40,6 +52,7 @@ func (h *HourlyTailer) managerLoop(ctx context.Context, wg *sync.WaitGroup) {
 	for {
 		select {
 		case <-ctx.Done():
+			log.Info().Msgf("Tailer %s stopped", h.baseDir)
 			return
 		case <-ticker.C:
 			t := time.Now()
@@ -62,10 +75,17 @@ func (h *HourlyTailer) startTailWorker(yymmdd string, hour int, ctx context.Cont
 
 		t, err := tail.TailFile(filePath, tail.Config{
 			ReOpen:    false,
-			Follow:    true,
 			MustExist: false,
 			Poll:      false,
-			Logger:    tail.DiscardingLogger,
+
+			Follow:        true,
+			MaxLineSize:   100 * 1024 * 1024,
+			CompleteLines: true,
+
+			Location: &tail.SeekInfo{
+				Offset: 0,
+				Whence: io.SeekEnd,
+			},
 		})
 
 		if err != nil {
@@ -80,6 +100,7 @@ func (h *HourlyTailer) startTailWorker(yymmdd string, hour int, ctx context.Cont
 		for {
 			select {
 			case <-ctx.Done():
+				log.Info().Msgf("Tailer worker %s stopped", filePath)
 				return
 			case line, ok := <-t.Lines:
 				idleTime.Reset(time.Minute * 1)
@@ -91,6 +112,7 @@ func (h *HourlyTailer) startTailWorker(yymmdd string, hour int, ctx context.Cont
 					log.Err(line.Err).Msgf("Read line error: %s", line.Text)
 					continue
 				}
+				h.lineCounter.Inc()
 				h.Lines <- line.Text
 			case <-idleTime.C:
 				log.Info().Msgf("Worker %s is idle. check is hour is past", filePath)

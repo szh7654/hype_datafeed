@@ -1,0 +1,17 @@
+syntax = "proto3";
+
+option go_package = "indexer/grpc";
+
+package grpc;
+
+// The greeting service definition.
+message Empty {}
+
+message PositionsResponse {
+  bytes data = 1;
+}
+
+service Server {
+  rpc GetPositionsJson (Empty) returns (PositionsResponse) {}
+}
+

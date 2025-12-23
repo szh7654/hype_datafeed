@@ -15,32 +15,38 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-type NSTime time.Time
+type StrTime time.Time
 
-func (ct *NSTime) UnmarshalJSON(data []byte) error {
+const nsTimeStrLen = len("2006-01-02T15:04:05.000")
+
+func (ct *StrTime) UnmarshalJSON(data []byte) error {
 	var str string
 	err := sonic.Unmarshal(data, &str)
 	if err != nil {
 		log.Warn().Msgf("Error unmarshaling Dir: cannot decode string from JSON data '%s': %v", string(data), err)
 		return nil
 	}
-	t, err := time.Parse("2006-01-02T15:04:05.000000000", str)
+	if len(str) > nsTimeStrLen {
+		str = str[:nsTimeStrLen]
+	}
+
+	t, err := time.Parse("2006-01-02T15:04:05.000", str)
 	if err != nil {
 		log.Warn().Msgf("Error unmarshaling Dir: cannot parse time '%s': %v", str, err)
 		return nil
 	}
-	*ct = NSTime(t)
+	*ct = StrTime(t)
 	return nil
 }
 
-func (ct NSTime) MarshalJSON() ([]byte, error) {
-	str := time.Time(ct).Format("2006-01-02T15:04:05.000000000")
+func (ct StrTime) MarshalJSON() ([]byte, error) {
+	str := time.Time(ct).Format("2006-01-02T15:04:05.000")
 	return sonic.Marshal(str)
 }
 
-type MSTime time.Time
+type MsTime time.Time
 
-func (ct *MSTime) UnmarshalJSON(data []byte) error {
+func (ct *MsTime) UnmarshalJSON(data []byte) error {
 	var str int64
 	err := sonic.Unmarshal(data, &str)
 	if err != nil {
@@ -48,16 +54,16 @@ func (ct *MSTime) UnmarshalJSON(data []byte) error {
 		return nil
 	}
 	t := time.UnixMilli(str)
-	*ct = MSTime(t)
+	*ct = MsTime(t)
 	return nil
 }
 
-func (ct MSTime) MarshalJSON() ([]byte, error) {
-	ms := time.Time(ct).Format("2006-01-02T15:04:05.000000000")
+func (ct MsTime) MarshalJSON() ([]byte, error) {
+	ms := time.Time(ct).Format("2006-01-02T15:04:05.000")
 	return sonic.Marshal(ms)
 }
 
-func (ct NSTime) Time() time.Time {
+func (ct StrTime) Time() time.Time {
 	return time.Time(ct)
 }
 
@@ -832,18 +838,27 @@ func parseFloatStr(key string, node *ast.Node) float64 {
 }
 
 type L4SnapShot struct {
-	BlockNumber uint32
-	AssetOrders []AssetOrders
+	BlockNumber    uint32
+	AssetSnapShots []AssetSnapShot
 }
 
-type AssetOrders struct {
-	Name      string
+type AssetSnapShot struct {
+	Name                           string
+	BookOrdersAndUntriggeredOrders BookOrdersAndUntriggeredOrders
+}
+
+type BookOrdersAndUntriggeredOrders struct {
+	BookOrders        BookOrders  `json:"book_orders"`
+	UntriggeredOrders []AddrOrder `json:"untriggered_orders"`
+}
+
+type BookOrders struct {
 	BidOrders []AddrOrder
 	AskOrders []AddrOrder
 }
 
 type AddrOrder struct {
-	Addr  eth.Address
+	User  eth.Address
 	Order Order
 }
 
@@ -859,14 +874,14 @@ func (v *L4SnapShot) UnmarshalJSON(data []byte) error {
 		panic(err)
 	}
 
-	if err := sonic.Unmarshal(arr[1], &v.AssetOrders); err != nil {
+	if err := sonic.Unmarshal(arr[1], &v.AssetSnapShots); err != nil {
 		panic(err)
 	}
 
 	return nil
 }
 
-func (v *AssetOrders) UnmarshalJSON(data []byte) error {
+func (v *AssetSnapShot) UnmarshalJSON(data []byte) error {
 	var arr []json.RawMessage
 	if err := sonic.Unmarshal(data, &arr); err != nil {
 		panic(err)
@@ -877,21 +892,27 @@ func (v *AssetOrders) UnmarshalJSON(data []byte) error {
 	if err := sonic.Unmarshal(arr[0], &v.Name); err != nil {
 		panic(err)
 	}
-	var arr1 []json.RawMessage
-	if err := sonic.Unmarshal(arr[1], &arr1); err != nil {
-		return err
-	}
-	if len(arr1) < 2 {
-		panic("expected at least 2 elements in bids and asks, got %d")
-	}
-	if err := sonic.Unmarshal(arr1[0], &v.BidOrders); err != nil {
-		panic(err)
-	}
-	if err := sonic.Unmarshal(arr1[1], &v.AskOrders); err != nil {
+	if err := sonic.Unmarshal(arr[1], &v.BookOrdersAndUntriggeredOrders); err != nil {
 		panic(err)
 	}
 	return nil
+}
 
+func (v *BookOrders) UnmarshalJSON(data []byte) error {
+	var arr []json.RawMessage
+	if err := sonic.Unmarshal(data, &arr); err != nil {
+		panic(err)
+	}
+	if len(arr) < 2 {
+		panic("")
+	}
+	if err := sonic.Unmarshal(arr[0], &v.BidOrders); err != nil {
+		panic(err)
+	}
+	if err := sonic.Unmarshal(arr[1], &v.AskOrders); err != nil {
+		panic(err)
+	}
+	return nil
 }
 
 func (v *AddrOrder) UnmarshalJSON(data []byte) error {
@@ -902,7 +923,7 @@ func (v *AddrOrder) UnmarshalJSON(data []byte) error {
 	if len(arr) < 2 {
 		panic("")
 	}
-	if err := sonic.Unmarshal(arr[0], &v.Addr); err != nil {
+	if err := sonic.Unmarshal(arr[0], &v.User); err != nil {
 		panic(err)
 	}
 	if err := sonic.Unmarshal(arr[1], &v.Order); err != nil {

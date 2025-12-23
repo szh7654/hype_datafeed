@@ -12,12 +12,11 @@ import (
 
 const (
 	MainnetAPIURL = "https://api.hyperliquid.xyz"
-	TestnetAPIURL = "https://api.hyperliquid-testnet.xyz"
-	LocalAPIURL   = "http://localhost:3001"
+	//TestnetAPIURL = "https://api.hyperliquid-testnet.xyz"
+	LocalAPIURL = "http://localhost:3001"
 )
 
 var (
-	baseURL    = LocalAPIURL
 	httpClient = fasthttp.Client{
 		MaxConnsPerHost:          20,
 		MaxIdleConnDuration:      30 * time.Minute,
@@ -27,13 +26,13 @@ var (
 	}
 )
 
-func post(path string, payload []byte) ([]byte, *fasthttp.Response, error) {
+func post(url string, payload []byte) ([]byte, *fasthttp.Response, error) {
 	req := fasthttp.AcquireRequest()
 	defer fasthttp.ReleaseRequest(req)
 	resp := fasthttp.AcquireResponse()
 
 	req.Header.SetMethod(fasthttp.MethodPost)
-	req.SetRequestURI(baseURL + path)
+	req.SetRequestURI(url)
 	req.Header.SetContentType("application/json")
 	req.SetBody(payload)
 
@@ -53,7 +52,7 @@ func post(path string, payload []byte) ([]byte, *fasthttp.Response, error) {
 
 func FetchUserState(address string) (*UserState, error) {
 	payload := []byte(fmt.Sprintf(`{"type": "clearinghouseState", "user": "%s"}`, address))
-	body, resp, err := post("/info", payload)
+	body, resp, err := post(LocalAPIURL+"/info", payload)
 	defer fasthttp.ReleaseResponse(resp)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch user state: %w", err)
@@ -68,7 +67,7 @@ func FetchUserState(address string) (*UserState, error) {
 
 func FetchMetaAndAssetCtxs() (*MetaAndAssetCtxs, error) {
 	payload := []byte(`{"type": "metaAndAssetCtxs"}`)
-	body, resp, err := post("/info", payload)
+	body, resp, err := post(MainnetAPIURL+"/info", payload)
 	defer fasthttp.ReleaseResponse(resp)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch meta and asset contexts: %w", err)
@@ -82,20 +81,21 @@ func FetchMetaAndAssetCtxs() (*MetaAndAssetCtxs, error) {
 }
 
 func FetchL4Snapshot() *L4SnapShot {
+	log.Info().Msg("fetching l4 snapshot")
 	os.Remove("/root/l4Snapshots.json")
 	payload := []byte(`{"type": "fileSnapshot",
-     "request": {"type": "l4Snapshots", "includeUsers": true, "includeTriggerOrders": false}, 
+     "request": {"type": "l4Snapshots", "includeUsers": true, "includeTriggerOrders": true}, 
      "outPath": "/root/l4Snapshots.json", 
      "includeHeightInOutput": true
      }`)
-	body, resp, err := post("/info", payload)
+	body, resp, err := post(LocalAPIURL+"/info", payload)
 	defer fasthttp.ReleaseResponse(resp)
 	if err != nil {
 		panic(err)
 	}
 	log.Info().Msgf("fileSnapshot response Body: %s", string(body))
 
-	f, err := os.Open("/home/szh/nt/quant/hyperliquid_indexer/sample_data/l4Snapshots.json")
+	f, err := os.Open("/root/l4Snapshots.json")
 	if err != nil {
 		panic(err)
 	}
@@ -107,5 +107,6 @@ func FetchL4Snapshot() *L4SnapShot {
 	if err != nil {
 		panic(err)
 	}
+	log.Info().Msgf("l4 snapshot block number: %d", l4SnapShot.BlockNumber)
 	return &res
 }

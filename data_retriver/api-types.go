@@ -54,16 +54,16 @@ type Meta struct {
 }
 
 type AssetCtx struct {
-	Funding      string   `json:"funding"`
-	OpenInterest string   `json:"openInterest"`
-	PrevDayPx    string   `json:"prevDayPx"`
-	DayNtlVlm    string   `json:"dayNtlVlm"`
-	Premium      string   `json:"premium"`
-	OraclePx     string   `json:"oraclePx"`
-	MarkPx       string   `json:"markPx"`
-	MidPx        string   `json:"midPx,omitempty"`
-	ImpactPxs    []string `json:"impactPxs"`
-	DayBaseVlm   string   `json:"dayBaseVlm,omitempty"`
+	Funding      float64 `json:"funding,string"`
+	OpenInterest float64 `json:"openInterest,string"`
+	PrevDayPx    float64 `json:"prevDayPx,string"`
+	DayNtlVlm    float64 `json:"dayNtlVlm,string"`
+	Premium      float64 `json:"premium,string"`
+	OraclePx     float64 `json:"oraclePx,string"`
+	MarkPx       float64 `json:"markPx,string"`
+	MidPx        float64 `json:"midPx,omitempty,string"`
+	//ImpactPxs    []float64 `json:"impactPxs"`
+	DayBaseVlm float64 `json:"dayBaseVlm,omitempty,string"`
 }
 
 // This type has no JSON annotation because it cannot be directly unmarshalled from the response
@@ -559,39 +559,45 @@ type PerpDeployAuctionStatus struct {
 }
 
 type BlockFill struct {
-	LocalTime   NSTime      `json:"local_time"`
-	BlockTime   NSTime      `json:"block_time"`
+	LocalTime   StrTime     `json:"local_time"`
+	BlockTime   StrTime     `json:"block_time"`
 	BlockNumber uint32      `json:"block_number"`
 	Events      []FillEvent `json:"events"`
 }
 
 type BlockOrderStatus struct {
-	LocalTime   NSTime        `json:"local_time"`
-	BlockTime   NSTime        `json:"block_time"`
+	LocalTime   StrTime       `json:"local_time"`
+	BlockTime   StrTime       `json:"block_time"`
 	BlockNumber uint32        `json:"block_number"`
 	Events      []StatusOrder `json:"events"`
 }
 
 type BlockOrderBookDiff struct {
-	LocalTime   NSTime          `json:"local_time"`
-	BlockTime   NSTime          `json:"block_time"`
+	LocalTime   StrTime         `json:"local_time"`
+	BlockTime   StrTime         `json:"block_time"`
 	BlockNumber uint32          `json:"block_number"`
 	Events      []OrderBookDiff `json:"events"`
 }
 
 type Fill struct {
-	Coin          string    `json:"coin"`
-	Px            float64   `json:"px,string"`
-	Sz            float64   `json:"sz,string"`
-	Side          Side      `json:"side"`
-	Time          MSTime    `json:"time"`
-	StartPosition float64   `json:"startPosition,string"`
-	Dir           string    `json:"dir"`
-	ClosedPnl     float64   `json:"closedPnl,string"`
-	Oid           uint64    `json:"oid"`
-	Crossed       bool      `json:"crossed"`
-	Fee           float64   `json:"fee,string"`
-	TwapId        opt.Int64 `json:"twapId"`
+	Coin          string       `json:"coin"`
+	Px            float64      `json:"px,string"`
+	Sz            float64      `json:"sz,string"`
+	Side          Side         `json:"side"`
+	Time          MsTime       `json:"time"`
+	StartPosition float64      `json:"startPosition,string"`
+	Dir           string       `json:"dir"`
+	ClosedPnl     float64      `json:"closedPnl,string"`
+	Oid           uint64       `json:"oid"`
+	Crossed       bool         `json:"crossed"`
+	Fee           float64      `json:"fee,string"`
+	TwapId        opt.Int64    `json:"twapId"`
+	Liquidation   *Liquidation `json:"liquidation"`
+}
+
+type Liquidation struct {
+	LiquidationUser eth.Address `json:"liquidationUser"`
+	MarkPx          float64     `json:"markPx,string"`
 }
 
 type AssetPosition struct {
@@ -646,7 +652,7 @@ type CrossMarginSummary struct {
 }
 
 type StatusOrder struct {
-	Time   NSTime      `json:"time"`
+	Time   StrTime     `json:"time"`
 	User   eth.Address `json:"user"`
 	Order  Order       `json:"order"`
 	Status Status      `json:"status"`
@@ -656,7 +662,7 @@ type Order struct {
 	Side             Side                 `json:"side"`
 	LimitPx          float64              `json:"limitPx,string"` // 使用 ,string 标签指示从 JSON 字符串反序列化
 	Sz               float64              `json:"sz,string"`      // 同上
-	Timestamp        MSTime               `json:"timestamp"`      // 自定义类型，需实现 Unmarshaler/Marshaler
+	Timestamp        MsTime               `json:"timestamp"`      // 自定义类型，需实现 Unmarshaler/Marshaler
 	TriggerCondition TriggerConditionType `json:"triggerCondition"`
 	IsTrigger        bool                 `json:"isTrigger"`
 	TriggerPx        float64              `json:"triggerPx,string"` // 同上

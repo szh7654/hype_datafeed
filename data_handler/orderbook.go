@@ -32,18 +32,10 @@ func addBook() {
 	})
 }
 
-func (t Book) applyBids(addrOrders []dr.AddrOrder) {
-	t.LimitBids.applyaAddrOrders(addrOrders)
-}
-
-func (t Book) applyAsks(addrOrders []dr.AddrOrder) {
-	t.LimitAsks.applyaAddrOrders(addrOrders)
-}
-
-func (t Levels) applyaAddrOrders(addrOrders []dr.AddrOrder) {
+func (t Levels) applyaLimitAddrOrders(addrOrders []dr.AddrOrder) {
 	for _, addrOrder := range addrOrders {
-		_, userId := GetUser(addrOrder.Addr)
-		setActive(userId, addrOrder.Addr)
+		_, userId := GetUser(addrOrder.User)
+		setActive(userId, addrOrder.User)
 		px := addrOrder.Order.LimitPx
 		sz := addrOrder.Order.Sz
 		oid := addrOrder.Order.Oid
@@ -51,10 +43,18 @@ func (t Levels) applyaAddrOrders(addrOrders []dr.AddrOrder) {
 	}
 }
 
+func (t Levels) applyTriggerAddrOrder(addrOrder dr.AddrOrder) {
+	_, userId := GetUser(addrOrder.User)
+	setActive(userId, addrOrder.User)
+	px := addrOrder.Order.TriggerPx
+	sz := addrOrder.Order.Sz
+	oid := addrOrder.Order.Oid
+	t.add(px, sz, oid, userId)
+}
+
 func (t Levels) applyOrderBookDiff(userId uint32, orderBookDiff dr.OrderBookDiff) {
 	t.applyLevelAction(LevelAction{Px: orderBookDiff.Px, Sz: orderBookDiff.OrderBookDiffAction.NewSz, Oid: orderBookDiff.Oid, UserId: userId, ActionType: orderBookDiff.OrderBookDiffAction.ActionType})
 }
-
 
 type LevelAction struct {
 	Px         float64
@@ -110,8 +110,7 @@ func (t Levels) update(px float64, sz float64, oid uint64, userId uint32) {
 		oidToSz := level[userId]
 		if oidToSz == nil {
 			log.Warn().Msgf("user id %v at price %f not found, continue update", userId, px)
-			oidToSz[oid] = sz
-			level[userId] = oidToSz
+			level[userId] = map[uint64]float64{oid: sz}
 		} else {
 			oidToSz[oid] = sz
 			level[userId] = oidToSz

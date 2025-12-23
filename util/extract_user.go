@@ -5,12 +5,13 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/rs/zerolog/log"
 	"github.com/vmihailenco/msgpack/v5"
 )
 
 func GetLastedRmpFile() *os.File {
 	yymmdd := time.Now().Format("20060102")
-	dirPath := "/root/hl/data/periodic_abci_state_statuses/" + yymmdd
+	dirPath := "/root/hl/data/periodic_abci_states/" + yymmdd
 	files, err := os.ReadDir(dirPath)
 	if err != nil {
 		panic(err)
@@ -36,7 +37,10 @@ func GetLastedRmpFile() *os.File {
 }
 
 func ExtractUser() []string {
-	decoder := msgpack.NewDecoder(GetLastedRmpFile())
+	log.Info().Msg("Extracting user...")
+	f := GetLastedRmpFile()
+	log.Info().Msgf("Opening file: %s", f.Name())
+	decoder := msgpack.NewDecoder(f)
 
 	// 设置允许非字符串键的选项，等同于 Python 的 strict_map_key=False
 	decoder.SetMapDecoder(func(d *msgpack.Decoder) (interface{}, error) {
@@ -177,6 +181,6 @@ func ExtractUser() []string {
 	if !exchangeFound {
 		panic("exchange field not found")
 	}
-
+	log.Info().Msgf("Extracted %d users", len(users))
 	return users
 }
