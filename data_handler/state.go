@@ -83,30 +83,17 @@ func Start(ctx context.Context, wg *sync.WaitGroup) {
 				ApplyL4Snapshot(l4snapshot)
 				log.Info().Msg("l4 snapshot applied")
 			case <-ueserStateReqTicker.C:
-				//log.Info().Msg("send user state request")
 				sendAndResetActiveUser()
-				//log.Info().Msg("send user state request done")
 			case <-minuteSnapshotTicker.C:
-				//log.Info().Msg("generate minute snapshot")
 				generateMinuteSnapshot()
-				//log.Info().Msg("generate minute snapshot done")
 			case UserStateWithId := <-dr.UserStateResponseChan:
-				//log.Info().Msg("apply user state")
 				applyUserState(UserStateWithId.UserState, UserStateWithId.UserId)
-				//log.Info().Msg("apply user state done")
 			case blockfill := <-dr.BlockFillChan:
-				//log.Info().Msg("apply block fill")
 				applyBlockFill(blockfill)
-			//log.Info().Msg("apply block fill done")
-			//case <-dr.BlockOrderStatusChan:
 			case blockOrderStatus := <-dr.BlockOrderStatusChan:
-				//log.Info().Msg("apply block order status")
 				applyBlockOrderStatus(blockOrderStatus)
-			//log.Info().Msg("apply block order status done")
 			case blockOrderBookDiff := <-dr.BlockOrderBookDiffChan:
-				//log.Info().Msg("apply block order book diff")
 				applyBlockOrderBookDiffPre(blockOrderBookDiff)
-				//log.Info().Msg("apply block order book diff done")
 			}
 		}
 	}()
