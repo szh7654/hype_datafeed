@@ -67,6 +67,7 @@ func init() {
 			MarkPx:      0,
 			MidPx:       0,
 			DayNtlVlm:   0,
+			Book:        NewBook(),
 		}
 		NameToAssetId[result.Name] = result.AssetId
 	}
@@ -102,15 +103,21 @@ type Asset struct {
 	Funding      float64
 	SzDecimals   uint8
 	MaxLeverage  uint16
+	Book         Book
+}
+
+func NewAsset() *Asset {
+	return &Asset{
+		Book: NewBook(),
+	}
 }
 
 func GetAsset(name string) (*Asset, uint16) {
 	if assetId, ok := NameToAssetId[name]; !ok {
 		NameToAssetId[name] = uint16(len(Assets))
 		AssetNames = append(AssetNames, name)
-		asset := &Asset{}
+		asset := NewAsset()
 		Assets = append(Assets, asset)
-		addBook()
 		newAssetChan <- AssetData{
 			Name:    name,
 			AssetId: NameToAssetId[name],

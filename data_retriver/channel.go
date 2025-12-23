@@ -188,7 +188,7 @@ func readOrderStatusBlockRoutine(ctx context.Context, wg *sync.WaitGroup) {
 
 func readOrderBookDiffBlockRoutine(ctx context.Context, wg *sync.WaitGroup) {
 	wg.Add(1)
-	tailer := util.NewTailer("/root/hl/data/node_raw_book_diffs_by_block//hourly/", ctx, wg)
+	tailer := util.NewTailer("/root/hl/data/node_raw_book_diffs_by_block/hourly/", ctx, wg)
 	go func() {
 		defer wg.Done()
 		for {

@@ -66,7 +66,6 @@ func init() {
 
 }
 
-
 func Start(ctx context.Context, wg *sync.WaitGroup) {
 	ueserStateReqTicker := time.NewTicker(1 * time.Minute)
 	minuteSnapshotTicker := time.NewTicker(1 * time.Minute)
@@ -98,11 +97,12 @@ func Start(ctx context.Context, wg *sync.WaitGroup) {
 			case blockfill := <-dr.BlockFillChan:
 				//log.Info().Msg("apply block fill")
 				applyBlockFill(blockfill)
-				//log.Info().Msg("apply block fill done")
+			//log.Info().Msg("apply block fill done")
+			//case <-dr.BlockOrderStatusChan:
 			case blockOrderStatus := <-dr.BlockOrderStatusChan:
 				//log.Info().Msg("apply block order status")
 				applyBlockOrderStatus(blockOrderStatus)
-				//log.Info().Msg("apply block order status done")
+			//log.Info().Msg("apply block order status done")
 			case blockOrderBookDiff := <-dr.BlockOrderBookDiffChan:
 				//log.Info().Msg("apply block order book diff")
 				applyBlockOrderBookDiffPre(blockOrderBookDiff)
@@ -209,50 +209,73 @@ func applyBlockOrderStatus(blockOrderStatus dr.BlockOrderStatus) {
 		_, userId := GetUser(orderStatus.User)
 		activeUsers[userId] = orderStatus.User
 		order := orderStatus.Order
-		asset, assetId := GetAsset(order.Coin)
-		if asset != nil {
-			book := books[assetId]
-			switch orderStatus.Order.IsTrigger {
+		asset, _ := GetAsset(order.Coin)
+		book := asset.Book
+		switch orderStatus.Order.IsTrigger {
+		case true:
+			switch orderStatus.Status {
+			case dr.StatusOpen:
+				switch order.Side {
+				case dr.SideA:
+					err := book.TriggerAsks.applyLevelAction(LevelAction{Px: order.TriggerPx, Sz: order.Sz, Oid: order.Oid, UserId: userId, ActionType: dr.ActionTypeNew})
+					if err != nil {
+						log.Error().Err(err).Msg("apply ask open trigger order failed")
+					}
+				case dr.SideB:
+					err := book.TriggerBids.applyLevelAction(LevelAction{Px: order.TriggerPx, Sz: order.Sz, Oid: order.Oid, UserId: userId, ActionType: dr.ActionTypeNew})
+					if err != nil {
+						log.Error().Err(err).Msg("apply bid open trigger order failed")
+					}
+				}
+			default:
+				switch order.Side {
+				case dr.SideA:
+					err := book.TriggerAsks.applyLevelAction(LevelAction{Px: order.TriggerPx, Sz: order.Sz, Oid: order.Oid, UserId: userId, ActionType: dr.ActionTypeRemove})
+					if err != nil {
+						log.Error().Err(err).Msgf("apply ask close trigger order failed, orderstatus: %s", orderStatus.Status.String())
+					}
+				case dr.SideB:
+					err := book.TriggerBids.applyLevelAction(LevelAction{Px: order.TriggerPx, Sz: order.Sz, Oid: order.Oid, UserId: userId, ActionType: dr.ActionTypeRemove})
+					if err != nil {
+						log.Error().Err(err).Msgf("apply bid close trigger order failed, orderstatus: %s", orderStatus.Status.String())
+					}
+				}
+			}
+		}
+		for _, order := range orderStatus.Order.Children {
+			switch order.IsTrigger {
 			case true:
 				switch orderStatus.Status {
 				case dr.StatusOpen:
 					switch order.Side {
 					case dr.SideA:
-						book.TriggerAsks.applyLevelAction(LevelAction{Px: order.TriggerPx, Sz: order.Sz, Oid: order.Oid, UserId: userId, ActionType: dr.ActionTypeNew})
+						err := book.TriggerAsks.applyLevelAction(LevelAction{Px: order.TriggerPx, Sz: order.Sz, Oid: order.Oid, UserId: userId, ActionType: dr.ActionTypeNew})
+						if err != nil {
+							log.Error().Err(err).Msg("apply ask open trigger order failed")
+						}
 					case dr.SideB:
-						book.TriggerBids.applyLevelAction(LevelAction{Px: order.TriggerPx, Sz: order.Sz, Oid: order.Oid, UserId: userId, ActionType: dr.ActionTypeNew})
+						err := book.TriggerBids.applyLevelAction(LevelAction{Px: order.TriggerPx, Sz: order.Sz, Oid: order.Oid, UserId: userId, ActionType: dr.ActionTypeNew})
+						if err != nil {
+							log.Error().Err(err).Msg("apply bid open trigger order failed")
+						}
 					}
 				default:
 					switch order.Side {
 					case dr.SideA:
-						book.TriggerAsks.applyLevelAction(LevelAction{Px: order.TriggerPx, Sz: order.Sz, Oid: order.Oid, UserId: userId, ActionType: dr.ActionTypeRemove})
-					case dr.SideB:
-						book.TriggerBids.applyLevelAction(LevelAction{Px: order.TriggerPx, Sz: order.Sz, Oid: order.Oid, UserId: userId, ActionType: dr.ActionTypeRemove})
-					}
-				}
-			}
-			for _, order := range orderStatus.Order.Children {
-				switch order.IsTrigger {
-				case true:
-					switch orderStatus.Status {
-					case dr.StatusOpen:
-						switch order.Side {
-						case dr.SideA:
-							book.TriggerAsks.applyLevelAction(LevelAction{Px: order.TriggerPx, Sz: order.Sz, Oid: order.Oid, UserId: userId, ActionType: dr.ActionTypeNew})
-						case dr.SideB:
-							book.TriggerBids.applyLevelAction(LevelAction{Px: order.TriggerPx, Sz: order.Sz, Oid: order.Oid, UserId: userId, ActionType: dr.ActionTypeNew})
+						err := book.TriggerAsks.applyLevelAction(LevelAction{Px: order.TriggerPx, Sz: order.Sz, Oid: order.Oid, UserId: userId, ActionType: dr.ActionTypeRemove})
+						if err != nil {
+							log.Error().Err(err).Msgf("apply ask close trigger order failed, orderstatus: %s", orderStatus.Status.String())
 						}
-					default:
-						switch order.Side {
-						case dr.SideA:
-							book.TriggerAsks.applyLevelAction(LevelAction{Px: order.TriggerPx, Sz: order.Sz, Oid: order.Oid, UserId: userId, ActionType: dr.ActionTypeRemove})
-						case dr.SideB:
-							book.TriggerBids.applyLevelAction(LevelAction{Px: order.TriggerPx, Sz: order.Sz, Oid: order.Oid, UserId: userId, ActionType: dr.ActionTypeRemove})
+					case dr.SideB:
+						err := book.TriggerBids.applyLevelAction(LevelAction{Px: order.TriggerPx, Sz: order.Sz, Oid: order.Oid, UserId: userId, ActionType: dr.ActionTypeRemove})
+						if err != nil {
+							log.Error().Err(err).Msgf("apply bid close trigger order failed, orderstatus: %s", orderStatus.Status.String())
 						}
 					}
 				}
 			}
 		}
+
 	}
 }
 
@@ -280,7 +303,7 @@ func applyBlockOrderBookDiffPre(blockOrderBookDiff dr.BlockOrderBookDiff) {
 		if blockOrderBookDiff.BlockNumber > l4SnapshotBlockNumber {
 			applyBlockOrderBookDiff(blockOrderBookDiff)
 		}
-		clear(preBlockOrderBookDiffs)
+		preBlockOrderBookDiffs = nil
 		isSync = true
 	}
 }
@@ -291,14 +314,20 @@ func applyBlockOrderBookDiff(blockOrderBookDiff dr.BlockOrderBookDiff) {
 	for _, orderBookDiff := range blockOrderBookDiff.Events {
 		_, userId := GetUser(orderBookDiff.User)
 		setActive(userId, orderBookDiff.User)
-		asset, assetId := GetAsset(orderBookDiff.Coin)
+		asset, _ := GetAsset(orderBookDiff.Coin)
 		if asset != nil {
-			book := books[assetId]
+			book := asset.Book
 			switch orderBookDiff.Side {
 			case dr.SideA:
-				book.LimitAsks.applyOrderBookDiff(userId, orderBookDiff)
+				err := book.LimitAsks.applyOrderBookDiff(userId, orderBookDiff)
+				if err != nil {
+					log.Error().Err(err).Msgf("apply ask bookdiff error, asset: %s userId: %d", orderBookDiff.Coin, userId)
+				}
 			case dr.SideB:
-				book.LimitBids.applyOrderBookDiff(userId, orderBookDiff)
+				err := book.LimitBids.applyOrderBookDiff(userId, orderBookDiff)
+				if err != nil {
+					log.Error().Err(err).Msgf("apply bid bookdiff error, asset: %s userId: %d", orderBookDiff.Coin, userId)
+				}
 			}
 		}
 	}
@@ -308,19 +337,18 @@ func ApplyL4Snapshot(l4Snapshot *dr.L4SnapShot) {
 	log.Info().Msgf("applying l4 snapshot, blockNumber: %d", l4Snapshot.BlockNumber)
 	l4SnapshotBlockNumber = l4Snapshot.BlockNumber
 	for _, assetSnapShot := range l4Snapshot.AssetSnapShots {
-		if id, ok := NameToAssetId[assetSnapShot.Name]; ok {
-			book := books[id]
-			bookOrders := assetSnapShot.BookOrdersAndUntriggeredOrders.BookOrders
-			untriggerredOrders := assetSnapShot.BookOrdersAndUntriggeredOrders.UntriggeredOrders
-			book.LimitBids.applyaLimitAddrOrders(bookOrders.AskOrders)
-			book.LimitAsks.applyaLimitAddrOrders(bookOrders.BidOrders)
-			for _, untriggeredOrder := range untriggerredOrders {
-				switch untriggeredOrder.Order.Side {
-				case dr.SideA:
-					book.TriggerAsks.applyTriggerAddrOrder(untriggeredOrder)
-				case dr.SideB:
-					book.TriggerBids.applyTriggerAddrOrder(untriggeredOrder)
-				}
+		asset, _ := GetAsset(assetSnapShot.Name)
+		book := asset.Book
+		bookOrders := assetSnapShot.BookOrdersAndUntriggeredOrders.BookOrders
+		untriggerredOrders := assetSnapShot.BookOrdersAndUntriggeredOrders.UntriggeredOrders
+		book.LimitBids.applyaLimitAddrOrders(bookOrders.AskOrders)
+		book.LimitAsks.applyaLimitAddrOrders(bookOrders.BidOrders)
+		for _, untriggeredOrder := range untriggerredOrders {
+			switch untriggeredOrder.Order.Side {
+			case dr.SideA:
+				book.TriggerAsks.applyTriggerAddrOrder(untriggeredOrder)
+			case dr.SideB:
+				book.TriggerBids.applyTriggerAddrOrder(untriggeredOrder)
 			}
 		}
 	}

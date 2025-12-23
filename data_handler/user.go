@@ -42,24 +42,37 @@ type UserData struct {
 	UserId uint32 `json:"user_id"`
 }
 
+func uploadUsers(users []UserData) {
+	log.Info().Msgf("upload %d users", len(users))
+	_, err := util.MongoClient.Database("quant").Collection("user").InsertMany(context.TODO(), users)
+	if err != nil {
+		log.Error().Err(err).Any("users", users).Msg("insert users failed")
+	}
+}
 func init() {
 	go func() {
-		ctx := context.TODO()
+		ticker := time.NewTicker(time.Second)
+		users := []UserData{}
 		for {
-			user := <-newUserChan
-			log.Info().Any("user", user).Msg("insert user")
-			_, err := util.MongoClient.Database("quant").Collection("user").InsertOne(ctx, UserData{
-				Name:   user.Name,
-				UserId: user.UserId,
-			})
-			if err != nil {
-				log.Error().Err(err).Any("user", user).Msg("insert user failed")
+			select {
+			case <-ticker.C:
+				if len(users) > 0 {
+					uploadUsers(users)
+					users = users[:0]
+				}
+			case user := <-newUserChan:
+				log.Info().Any("user", user).Msg("recv new user")
+				users = append(users, user)
+				if len(users) > 10000 {
+					uploadUsers(users)
+					users = users[:0]
+				}
 			}
 		}
 	}()
 
 	ctx := context.TODO()
-
+	log.Info().Msg("fetching users from mongo")
 	cursor, err := userCollection.Find(ctx, bson.D{})
 	if err != nil {
 		panic(err)
@@ -71,6 +84,7 @@ func init() {
 	sort.Slice(results, func(i, j int) bool {
 		return results[i].UserId < results[j].UserId
 	})
+	log.Info().Msgf("fetch %d users from mongo", len(results))
 	UserAddrs = make([]eth.Address, len(results))
 	Users = make([]*User, len(results))
 	for i, result := range results {
@@ -82,7 +96,6 @@ func init() {
 	for _, user := range users {
 		_, _ = GetUser(eth.HexToAddress(user))
 	}
-
 }
 
 type User struct {

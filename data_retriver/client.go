@@ -100,13 +100,12 @@ func FetchL4Snapshot() *L4SnapShot {
 		panic(err)
 	}
 
-	var res L4SnapShot
-	decoder := sonic.ConfigDefault.NewDecoder(f)
 	var l4SnapShot L4SnapShot
+	decoder := sonic.ConfigDefault.NewDecoder(f)
 	err = decoder.Decode(&l4SnapShot)
 	if err != nil {
 		panic(err)
 	}
 	log.Info().Msgf("l4 snapshot block number: %d", l4SnapShot.BlockNumber)
-	return &res
+	return &l4SnapShot
 }

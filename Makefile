@@ -13,5 +13,5 @@ clean:
 	rm -rf $(OUT_DIR)/*.pb.go
 
 datafeed:
-	go build cmd/datafeed/main.go -o bin/datafeed
+	go build -o bin/datafeed cmd/datafeed/main.go
 	scp -C  bin/datafeed root@51.79.177.97:/root/datafeed/
